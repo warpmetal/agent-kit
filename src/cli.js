@@ -15,7 +15,7 @@ import { installSkill } from "./install-skill.js";
 import { readSshPublicKey, signSshChallenge } from "./ssh.js";
 import { resolveStateDirectory, StateStore } from "./state.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 const TASK_TERMINAL_STATES = new Set([
   "ready",
   "expired",

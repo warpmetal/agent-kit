@@ -61,7 +61,7 @@ export class WarpMetalClient {
     const url = new URL(path, `${this.baseUrl}/`);
     const headers = {
       Accept: "application/json",
-      "User-Agent": "warpmetal-cli/0.1.0",
+      "User-Agent": "warpmetal-cli/0.1.1",
     };
     let requestBody;
     if (bodyText !== undefined) {

@@ -69,7 +69,9 @@ alternate state directory.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
 
-## Publishing status
+## Release status
 
-This package is an initial development release. Choose the public-source
-license and replace `UNLICENSED` before publishing it to npm.
+The initial development release is published at
+`https://www.npmjs.com/package/warpmetal`. The source is publicly visible but
+remains `UNLICENSED`; choose an explicit license before describing the project
+as open source or inviting third-party reuse.

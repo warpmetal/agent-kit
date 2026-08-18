@@ -1,10 +1,10 @@
 {
   "name": "warpmetal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent-safe CLI and skill for purchasing and managing WarpMetal VPS servers",
   "type": "module",
   "bin": {
-    "warpmetal": "./bin/warpmetal.js"
+    "warpmetal": "bin/warpmetal.js"
   },
   "files": [
     "bin/",
