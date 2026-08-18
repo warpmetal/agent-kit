@@ -1,0 +1,43 @@
+{
+  "name": "warpmetal",
+  "version": "0.1.0",
+  "description": "Agent-safe CLI and skill for purchasing and managing WarpMetal VPS servers",
+  "type": "module",
+  "bin": {
+    "warpmetal": "./bin/warpmetal.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skills/warpmetal/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "check": "node --check bin/warpmetal.js && node --check src/api.js && node --check src/args.js && node --check src/cli.js && node --check src/errors.js && node --check src/install-skill.js && node --check src/ssh.js && node --check src/state.js",
+    "test": "node --test",
+    "prepack": "npm run check && npm test"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/warpmetal/agent-kit.git"
+  },
+  "homepage": "https://github.com/warpmetal/agent-kit#readme",
+  "bugs": {
+    "url": "https://github.com/warpmetal/agent-kit/issues"
+  },
+  "license": "UNLICENSED",
+  "keywords": [
+    "warpmetal",
+    "vps",
+    "agent-skills",
+    "codex",
+    "claude",
+    "x402"
+  ]
+}

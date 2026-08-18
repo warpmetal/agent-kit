@@ -1,0 +1,4 @@
+interface:
+  display_name: "WarpMetal VPS"
+  short_description: "Purchase and manage WarpMetal VPS servers"
+  default_prompt: "Use $warpmetal to choose, purchase, and manage a WarpMetal VPS safely."
