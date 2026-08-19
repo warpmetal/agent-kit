@@ -25,6 +25,10 @@
 - Never read or transmit an SSH private key. Pass only its filesystem path to
   `warpmetal server login`, `warpmetal runtime install`,
   `warpmetal sandbox connect`, or `ssh-keygen`.
+- WarpMetal disables VPS password and keyboard-interactive SSH login after
+  initial provisioning and every OS reload. Never request, store, invent, or
+  expect a VPS login password; use the submitted public key and matching
+  private-key path.
 - Never place the owner SSH key, owner token, management access token, runtime
   bootstrap, supervisor node token, or state file inside a sandbox.
 - Give each agent a distinct sandbox-specific SSH key and grant. Never reuse

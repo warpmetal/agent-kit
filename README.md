@@ -65,6 +65,9 @@ alternate state directory.
   permissions where the platform supports POSIX modes.
 - The CLI passes an SSH private-key path directly to `ssh-keygen`; it never
   reads the private key.
+- WarpMetal applies key-only OpenSSH configuration on initial provisioning and
+  every OS reload. Password and keyboard-interactive login are disabled; never
+  request, store, or expect a VPS login password.
 - The CLI accepts an externally produced x402 `PAYMENT-SIGNATURE` from a file.
   Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and

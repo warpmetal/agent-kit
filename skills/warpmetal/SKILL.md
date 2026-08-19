@@ -26,6 +26,11 @@ Never read, print, summarize, upload, or commit the WarpMetal state file. Never
 read an SSH private-key file. Pass its path only to a command designed to use
 it. Never request or handle a wallet seed phrase or private key.
 
+WarpMetal provisions and reloads servers with key-only OpenSSH access. Password
+and keyboard-interactive login are disabled, including for root. Never request,
+store, invent, or expect a VPS login password; use the submitted public key and
+its matching private-key path.
+
 ## Discover before acting
 
 Run:
@@ -87,6 +92,11 @@ Poll a prepared or paid order with:
 ```sh
 warpmetal order status --task <taskId> --wait --json
 ```
+
+After initial provisioning and every OS reload, WarpMetal reapplies the same
+key-only policy: `PasswordAuthentication no`,
+`KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`, and
+`AuthenticationMethods publickey`.
 
 For routine management, prove possession of the installed SSH key without
 reading it:
