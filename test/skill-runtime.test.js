@@ -26,9 +26,15 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "Do not",
     "raw HTTP",
     "powerOffFirst: true",
+    "PasswordAuthentication no",
+    "AuthenticationMethods publickey",
   ]) {
     assert.ok(combined.includes(required), `missing runtime skill rule: ${required}`);
   }
   assert.match(skill, /If the installed CLI lacks a required runtime command, stop/i);
+  assert.match(
+    skill,
+    /Never request,\s+store, invent, or expect a VPS login password/i,
+  );
   assert.match(runtime, /permanently deletes the workspace/i);
 });
