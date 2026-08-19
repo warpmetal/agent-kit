@@ -12,6 +12,8 @@ const BUNDLE_FILES = [
   "warpmetal-agentctl",
   "warpmetal-sandbox-gateway",
   "warpmetal-sandbox-shell",
+  "warpmetal-podman-service",
+  "warpmetal-podman.service",
   "warpmetald",
   "warpmetald.service",
   "warpmetal-sandbox.conf",
