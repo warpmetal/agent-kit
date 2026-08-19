@@ -4,7 +4,8 @@ The official command-line client and portable Agent Skill for WarpMetal.
 
 The CLI uses the public API at `https://api.warpmetal.com`, stores generated
 WarpMetal credentials in a user-private state file, and never reads or stores
-wallet private keys or SSH private-key contents.
+wallet private keys or SSH private-key contents. Version 0.2 adds the optional
+Agent Runtime workflow for fixed-size, isolated sandboxes on one owner's VPS.
 
 ## Distribution
 
@@ -68,6 +69,40 @@ alternate state directory.
   Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
+- Runtime bootstrap credentials remain memory-only. Signed supervisor bundles
+  are checksum- and signature-verified before OpenSSH uploads them.
+- Each agent gets a distinct SSH key forced into exactly one sandbox. Token-free
+  connection profiles pin the VPS host key and contain no owner credential or
+  private-key material.
+- Sandboxes use the fixed runtime image and fixed sizes. Persistent is the
+  default; temporary sandboxes require explicit confirmation and permanently
+  delete their workspace after 15 minutes to 24 hours.
+
+## Agent Runtime example
+
+```sh
+warpmetal runtime enable --server <serverId> --json
+warpmetal runtime install \
+  --server <serverId> \
+  --identity ~/.ssh/warpmetal-owner \
+  --ssh-user ubuntu \
+  --confirm INSTALL \
+  --wait \
+  --json
+warpmetal sandbox create \
+  --server <serverId> \
+  --name planner \
+  --size small \
+  --wait \
+  --json
+warpmetal sandbox access keygen \
+  --output ~/.ssh/warpmetal-planner \
+  --confirm GENERATE \
+  --json
+```
+
+See `skills/warpmetal/references/runtime.md` for the complete lifecycle,
+cleanup, access-grant, and strict host-key connection workflow.
 
 ## Release status
 

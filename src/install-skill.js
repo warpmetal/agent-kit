@@ -21,7 +21,11 @@ function destinationFor(target, scope, { cwd, env }) {
   const userHome = env.HOME || env.USERPROFILE || homedir();
   if (target === "codex") {
     if (scope === "project") return join(cwd, ".codex", "skills", "warpmetal");
-    return join(resolve(env.CODEX_HOME || join(userHome, ".codex")), "skills", "warpmetal");
+    return join(
+      resolve(env.CODEX_HOME || join(userHome, ".codex")),
+      "skills",
+      "warpmetal",
+    );
   }
   if (target === "claude") {
     if (scope === "project") return join(cwd, ".claude", "skills", "warpmetal");
@@ -32,7 +36,12 @@ function destinationFor(target, scope, { cwd, env }) {
 
 export async function installSkill(
   target,
-  { scope = "user", force = false, cwd = process.cwd(), env = process.env } = {},
+  {
+    scope = "user",
+    force = false,
+    cwd = process.cwd(),
+    env = process.env,
+  } = {},
 ) {
   if (!["user", "project"].includes(scope)) {
     throw new CliError("--scope must be user or project.", { exitCode: 2 });
