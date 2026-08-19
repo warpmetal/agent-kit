@@ -47,6 +47,12 @@ Obtain explicit user approval immediately before:
 - revoking a sandbox access grant; and
 - any destructive reload, sandbox deletion, or replacement-key operation.
 
+A reload requires both `confirm: "ERASE"` and `powerOffFirst: true`. Treat
+`powerOffFirst` as explicit authorization for WarpMetal to shut down the
+server, wait until it is powered off, and then erase and reinstall it inside
+one lifecycle operation. Do not reconstruct this flow with raw HTTP while the
+installed CLI lacks a guarded reload command.
+
 An order preparation is unpaid but consumes a limited prepared-order slot.
 Confirm the plan, hostname, OS, and public key before preparing it.
 

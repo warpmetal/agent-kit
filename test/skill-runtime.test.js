@@ -25,6 +25,7 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "pinned host keys",
     "Do not",
     "raw HTTP",
+    "powerOffFirst: true",
   ]) {
     assert.ok(combined.includes(required), `missing runtime skill rule: ${required}`);
   }

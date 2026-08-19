@@ -110,7 +110,11 @@ warpmetal server power \
 
 Do not fall back to raw API calls for reload, deletion, networking, renewal,
 or another unsupported mutation. Explain that the installed CLI version does
-not yet expose that guarded operation.
+not yet expose that guarded operation. The public reload contract requires
+both `confirm: "ERASE"` and `powerOffFirst: true`; the latter authorizes the
+same lifecycle operation to shut down the server and wait for provider power
+off before erasing it. This contract knowledge is not permission to bypass the
+CLI restriction.
 
 ## Use Agent Runtime
 

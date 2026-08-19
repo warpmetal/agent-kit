@@ -75,6 +75,11 @@ warpmetal operation get \
   --json
 ```
 
+This CLI version does not expose reload. The public reload API requires both
+`confirm: "ERASE"` and `powerOffFirst: true`, with shutdown, powered-off
+verification, and reload handled by one lifecycle operation. Do not call that
+endpoint with raw HTTP; wait for a guarded CLI command.
+
 Use `--token-file` only for recovery when local state is unavailable. Prefer
 `WARPMETAL_OWNER_TOKEN` or `WARPMETAL_ACCESS_TOKEN` for a single command over a
 shell argument, because command-line arguments can be recorded in history and
