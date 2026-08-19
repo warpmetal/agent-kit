@@ -23,7 +23,12 @@
 - Treat an SSH-derived access token as a short-lived bearer credential. Let
   the CLI store and refresh it.
 - Never read or transmit an SSH private key. Pass only its filesystem path to
-  `warpmetal server login` or `ssh-keygen`.
+  `warpmetal server login`, `warpmetal runtime install`,
+  `warpmetal sandbox connect`, or `ssh-keygen`.
+- Never place the owner SSH key, owner token, management access token, runtime
+  bootstrap, supervisor node token, or state file inside a sandbox.
+- Give each agent a distinct sandbox-specific SSH key and grant. Never reuse
+  the owner host key or one agent key across multiple sandboxes.
 - Never request, read, transmit, or store a wallet seed phrase or private key.
 - Never put a token, payment signature, private key, or state-file content in
   a prompt, URL, log, screenshot, source file, or shell argument.
@@ -33,11 +38,14 @@
 Obtain explicit user approval immediately before:
 
 - installing the CLI or skill;
+- installing or repairing the Agent Runtime supervisor;
 - generating a new SSH key pair;
 - creating or funding a wallet;
 - signing or submitting an x402 payment authorization;
 - booting, rebooting, or shutting down a server; and
-- any destructive reload, deletion, or replacement-key operation.
+- creating a temporary sandbox after explaining its irreversible expiry;
+- revoking a sandbox access grant; and
+- any destructive reload, sandbox deletion, or replacement-key operation.
 
 An order preparation is unpaid but consumes a limited prepared-order slot.
 Confirm the plan, hostname, OS, and public key before preparing it.
@@ -53,3 +61,8 @@ Confirm the plan, hostname, OS, and public key before preparing it.
   mutation.
 - Treat HTTP 202 as accepted or pending, never as proof of success. Poll the
   returned task or operation until a documented terminal state.
+- Temporary sandbox expiry is a local hard deadline. Stop, restart, and
+  control-plane outages do not pause it; expiry permanently deletes the
+  workspace and revokes access.
+- Stop when the installed CLI lacks a runtime command. Do not fall back to raw
+  HTTP, raw Podman/Docker, or ad hoc SSH host mutation.

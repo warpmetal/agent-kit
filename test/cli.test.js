@@ -9,7 +9,11 @@ import { main } from "../src/cli.js";
 function capture() {
   let value = "";
   return {
-    stream: { write(chunk) { value += String(chunk); } },
+    stream: {
+      write(chunk) {
+        value += String(chunk);
+      },
+    },
     value: () => value,
   };
 }
@@ -64,7 +68,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         warning: "Store this token safely.",
       });
     }
-    if (request.method === "POST" && parsed.pathname === "/api/checkout/agent") {
+    if (
+      request.method === "POST" &&
+      parsed.pathname === "/api/checkout/agent"
+    ) {
       if (!headers.get("payment-signature")) {
         return jsonResponse(
           402,
@@ -159,7 +166,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       },
     );
     assert.equal(challengeExit, 7, challengeErr.value());
-    assert.equal(JSON.parse(challengeOut.value()).paymentRequired, "challenge_header_value");
+    assert.equal(
+      JSON.parse(challengeOut.value()).paymentRequired,
+      "challenge_header_value",
+    );
 
     const submitOut = capture();
     const submitErr = capture();
@@ -188,7 +198,9 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(submitExit, 0, submitErr.value());
     assert.equal(JSON.parse(submitOut.value()).status, "provisioning");
 
-    const checkoutRequests = requests.filter(({ url }) => url === "/api/checkout/agent");
+    const checkoutRequests = requests.filter(
+      ({ url }) => url === "/api/checkout/agent",
+    );
     assert.equal(checkoutRequests.length, 2);
     assert.deepEqual(
       checkoutRequests.map(({ body }) => body),
@@ -216,7 +228,12 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
     assert.equal(stateListExit, 0);
     assert.equal(stateListOut.value().includes("owner_secret_value"), false);
-    assert.equal((await readFile(join(stateDirectory, "state.json"), "utf8")).includes("owner_secret_value"), true);
+    assert.equal(
+      (await readFile(join(stateDirectory, "state.json"), "utf8")).includes(
+        "owner_secret_value",
+      ),
+      true,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

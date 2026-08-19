@@ -3,11 +3,12 @@ import { CliError } from "./errors.js";
 export function parseArguments(argv) {
   const positionals = [];
   const options = {};
+  let passthrough = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--") {
-      positionals.push(...argv.slice(index + 1));
+      passthrough = argv.slice(index + 1);
       break;
     }
     if (!value.startsWith("--")) {
@@ -36,7 +37,7 @@ export function parseArguments(argv) {
     }
   }
 
-  return { positionals, options };
+  return { positionals, options, passthrough };
 }
 
 export function stringOption(options, name, { required = false } = {}) {
@@ -61,7 +62,9 @@ export function integerOption(options, name, fallback) {
   const value = options[name];
   if (value === undefined) return fallback;
   if (typeof value !== "string" || !/^[1-9]\d*$/.test(value)) {
-    throw new CliError(`--${name} must be a positive integer.`, { exitCode: 2 });
+    throw new CliError(`--${name} must be a positive integer.`, {
+      exitCode: 2,
+    });
   }
   const number = Number(value);
   if (!Number.isSafeInteger(number)) {
@@ -71,7 +74,9 @@ export function integerOption(options, name, fallback) {
 }
 
 export function rejectUnknownOptions(options, allowed) {
-  const unknown = Object.keys(options).filter((name) => !allowed.includes(name));
+  const unknown = Object.keys(options).filter(
+    (name) => !allowed.includes(name),
+  );
   if (unknown.length > 0) {
     throw new CliError(`Unknown option: --${unknown[0]}`, { exitCode: 2 });
   }

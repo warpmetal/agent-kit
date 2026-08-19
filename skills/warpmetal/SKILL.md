@@ -1,6 +1,6 @@
 ---
 name: warpmetal
-description: Safely purchase and manage WarpMetal VPS servers with the warpmetal CLI. Use when Codex, Claude Code, Cursor, Windsurf, or another shell-capable agent needs to inspect live VPS plans and operating systems, prepare or pay for an x402 order, poll provisioning, prove ownership with an SSH key, inspect a server, or run supported lifecycle operations.
+description: Safely purchase and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official warpmetal CLI. Use when a shell-capable agent needs live VPS discovery, x402 ordering, provisioning, server management, optional runtime installation, fixed-size sandbox creation, persistent or temporary lifetime, per-agent SSH access, sandbox connection, access revocation, or workspace deletion.
 ---
 
 # WarpMetal
@@ -19,6 +19,8 @@ with ad hoc HTTP commands.
    authorizing payment, using an SSH identity, or changing a server.
 5. Read [references/cli-reference.md](references/cli-reference.md) when choosing
    a command or interpreting an exit code.
+6. Read [references/runtime.md](references/runtime.md) before requesting,
+   installing, accessing, expiring, or deleting Agent Runtime sandboxes.
 
 Never read, print, summarize, upload, or commit the WarpMetal state file. Never
 read an SSH private-key file. Pass its path only to a command designed to use
@@ -109,3 +111,27 @@ warpmetal server power \
 Do not fall back to raw API calls for reload, deletion, networking, renewal,
 or another unsupported mutation. Explain that the installed CLI version does
 not yet expose that guarded operation.
+
+## Use Agent Runtime
+
+Agent Runtime is optional and shares one owner's VPS only among that owner's
+agents. Discover live `agentRuntime` capacity and OS support before choosing
+sizes. Use `--runtime-file` to include sandbox intent in an unpaid order, or
+`warpmetal runtime enable` after the VPS is ready. Supervisor installation is
+separate and requires approval plus `--confirm INSTALL`.
+
+Omitted lifetime means persistent. A temporary sandbox requires
+`--confirm TEMPORARY`, expires 15 minutes to 24 hours after first reaching
+running, and permanently deletes its workspace at expiry. Never describe a
+pending HTTP 202 response as applied; poll runtime, sandbox, and grant state.
+
+Every agent must use a distinct sandbox-specific SSH key. Ask before key
+generation, create one access grant for one sandbox, wait for `applied` plus
+pinned host keys, then connect only through `warpmetal sandbox connect`.
+Never give an agent the owner host key, owner token, SSH-derived management
+token, runtime bootstrap, or node token.
+
+If the installed CLI lacks a required runtime command, stop, explain the
+version limitation, and ask before upgrading the official npm package. Do not
+reconstruct runtime changes with raw HTTP, ad hoc SSH, Podman, Docker, or host
+configuration commands.

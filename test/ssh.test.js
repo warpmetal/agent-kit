@@ -11,7 +11,11 @@ test("public-key reader rejects private keys", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-public-key-test-"));
   const path = join(directory, "identity");
   try {
-    await writeFile(path, "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n", "utf8");
+    await writeFile(
+      path,
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n",
+      "utf8",
+    );
     await assert.rejects(() => readSshPublicKey(path), /never a private key/);
   } finally {
     await rm(directory, { recursive: true, force: true });

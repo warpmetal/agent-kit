@@ -19,8 +19,14 @@ test("portable skill installs for Codex and Claude project scopes", async () => 
       ["codex", "claude"],
     );
 
-    const codex = await readFile(join(directory, ".codex/skills/warpmetal/SKILL.md"), "utf8");
-    const claude = await readFile(join(directory, ".claude/skills/warpmetal/SKILL.md"), "utf8");
+    const codex = await readFile(
+      join(directory, ".codex/skills/warpmetal/SKILL.md"),
+      "utf8",
+    );
+    const claude = await readFile(
+      join(directory, ".claude/skills/warpmetal/SKILL.md"),
+      "utf8",
+    );
     assert.equal(codex, claude);
     assert.match(codex, /^---\nname: warpmetal\n/);
   } finally {

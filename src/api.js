@@ -1,4 +1,5 @@
 import { ApiError, CliError } from "./errors.js";
+import { USER_AGENT } from "./version.js";
 
 const DEFAULT_API_URL = "https://api.warpmetal.com";
 
@@ -11,14 +12,20 @@ function validateBaseUrl(value) {
   }
   const local = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
   if (url.protocol !== "https:" && !(local && url.protocol === "http:")) {
-    throw new CliError("WarpMetal API URLs must use HTTPS (HTTP is allowed for localhost).", {
-      exitCode: 2,
-    });
+    throw new CliError(
+      "WarpMetal API URLs must use HTTPS (HTTP is allowed for localhost).",
+      {
+        exitCode: 2,
+      },
+    );
   }
   if (url.username || url.password || url.search || url.hash) {
-    throw new CliError("WarpMetal API URLs cannot contain credentials, query, or fragment data.", {
-      exitCode: 2,
-    });
+    throw new CliError(
+      "WarpMetal API URLs cannot contain credentials, query, or fragment data.",
+      {
+        exitCode: 2,
+      },
+    );
   }
   return url.toString().replace(/\/$/, "");
 }
@@ -37,11 +44,19 @@ function headerMap(headers) {
 }
 
 export class WarpMetalClient {
-  constructor({ baseUrl, fetchImpl = globalThis.fetch, timeoutMs = 30_000 } = {}) {
+  constructor({
+    baseUrl,
+    fetchImpl = globalThis.fetch,
+    timeoutMs = 30_000,
+  } = {}) {
     if (typeof fetchImpl !== "function") {
-      throw new CliError("This Node.js runtime does not provide fetch().", { exitCode: 2 });
+      throw new CliError("This Node.js runtime does not provide fetch().", {
+        exitCode: 2,
+      });
     }
-    this.baseUrl = validateBaseUrl(baseUrl || process.env.WARPMETAL_API_URL || DEFAULT_API_URL);
+    this.baseUrl = validateBaseUrl(
+      baseUrl || process.env.WARPMETAL_API_URL || DEFAULT_API_URL,
+    );
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
   }
@@ -61,7 +76,7 @@ export class WarpMetalClient {
     const url = new URL(path, `${this.baseUrl}/`);
     const headers = {
       Accept: "application/json",
-      "User-Agent": "warpmetal-cli/0.1.1",
+      "User-Agent": USER_AGENT,
     };
     let requestBody;
     if (bodyText !== undefined) {
@@ -85,7 +100,9 @@ export class WarpMetalClient {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new CliError(`Could not reach ${url.origin}: ${message}`, { exitCode: 3 });
+      throw new CliError(`Could not reach ${url.origin}: ${message}`, {
+        exitCode: 3,
+      });
     }
 
     const text = await response.text();
@@ -99,12 +116,15 @@ export class WarpMetalClient {
     if (response.ok || acceptStatuses.includes(response.status)) return result;
 
     const apiError = data?.error;
-    throw new ApiError(apiError?.message || `Request failed with HTTP ${response.status}.`, {
-      status: response.status,
-      code: apiError?.code,
-      retryAfter: response.headers.get("retry-after") || undefined,
-      body: data,
-    });
+    throw new ApiError(
+      apiError?.message || `Request failed with HTTP ${response.status}.`,
+      {
+        status: response.status,
+        code: apiError?.code,
+        retryAfter: response.headers.get("retry-after") || undefined,
+        body: data,
+      },
+    );
   }
 
   health() {
@@ -120,7 +140,9 @@ export class WarpMetalClient {
   }
 
   getTask(taskId, token) {
-    return this.request("GET", `/api/tasks/${encodeURIComponent(taskId)}`, { token });
+    return this.request("GET", `/api/tasks/${encodeURIComponent(taskId)}`, {
+      token,
+    });
   }
 
   checkout(path, { bodyText, token, paymentSignature }) {
@@ -149,21 +171,135 @@ export class WarpMetalClient {
   }
 
   getServer(serverId, token) {
-    return this.request("GET", `/api/servers/${encodeURIComponent(serverId)}`, { token });
+    return this.request("GET", `/api/servers/${encodeURIComponent(serverId)}`, {
+      token,
+    });
   }
 
   powerServer(serverId, action, token, idempotencyKey) {
-    return this.request("POST", `/api/servers/${encodeURIComponent(serverId)}/power`, {
-      body: { action },
-      token,
-      idempotencyKey,
-    });
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/power`,
+      {
+        body: { action },
+        token,
+        idempotencyKey,
+      },
+    );
   }
 
   getOperation(operationId, token) {
-    return this.request("GET", `/api/operations/${encodeURIComponent(operationId)}`, {
-      token,
-    });
+    return this.request(
+      "GET",
+      `/api/operations/${encodeURIComponent(operationId)}`,
+      {
+        token,
+      },
+    );
+  }
+
+  enableRuntime(serverId, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/runtime/enable`,
+      {
+        body: {},
+        token,
+        idempotencyKey,
+      },
+    );
+  }
+
+  getRuntime(serverId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/runtime`,
+      { token },
+    );
+  }
+
+  bootstrapRuntime(serverId, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/runtime/bootstrap`,
+      { body: {}, token, idempotencyKey },
+    );
+  }
+
+  listSandboxes(serverId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes`,
+      { token },
+    );
+  }
+
+  createSandboxes(serverId, sandboxes, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes`,
+      {
+        body: { sandboxes },
+        token,
+        idempotencyKey,
+      },
+    );
+  }
+
+  getSandbox(serverId, sandboxId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}`,
+      { token },
+    );
+  }
+
+  sandboxAction(serverId, sandboxId, action, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/actions`,
+      { body: { action }, token, idempotencyKey },
+    );
+  }
+
+  deleteSandbox(serverId, sandboxId, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/delete`,
+      { body: { confirm: "DELETE" }, token, idempotencyKey },
+    );
+  }
+
+  listAccessGrants(serverId, sandboxId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
+      { token },
+    );
+  }
+
+  createAccessGrant(serverId, sandboxId, body, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
+      { body, token, idempotencyKey },
+    );
+  }
+
+  getAccessGrant(serverId, sandboxId, grantId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}`,
+      { token },
+    );
+  }
+
+  revokeAccessGrant(serverId, sandboxId, grantId, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}/revoke`,
+      { body: { confirm: "REVOKE" }, token, idempotencyKey },
+    );
   }
 }
 

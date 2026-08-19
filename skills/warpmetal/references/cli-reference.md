@@ -5,6 +5,8 @@
 - Discovery
 - Purchase and provisioning
 - Server management
+- Agent Runtime and sandboxes
+- Per-agent access
 - Skill installation and state
 - Exit codes
 
@@ -26,6 +28,7 @@ warpmetal order prepare \
   --hostname <dns-label> \
   --os '<exact live OS name>' \
   --ssh-public-key-file <path> \
+  [--runtime-file <runtime.json>] [--confirm TEMPORARY] \
   [--email <address>] \
   [--idempotency-key <key>] \
   --json
@@ -77,6 +80,56 @@ Use `--token-file` only for recovery when local state is unavailable. Prefer
 shell argument, because command-line arguments can be recorded in history and
 process listings.
 
+## Agent Runtime and sandboxes
+
+```sh
+warpmetal runtime enable --server <serverId> [--idempotency-key <key>] --json
+warpmetal runtime get --server <serverId> [--wait] [--timeout-seconds <n>] --json
+warpmetal runtime install \
+  --server <serverId> --identity <owner-key> --ssh-user <admin-user> \
+  --confirm INSTALL [--wait] [--timeout-seconds <n>] --json
+
+warpmetal sandbox create \
+  --server <serverId> --name <name> --size <small|medium|large|xlarge> \
+  [--lifetime temporary] [--expires-in-seconds <900-86400>] \
+  [--confirm TEMPORARY] [--wait] [--timeout-seconds <n>] --json
+warpmetal sandbox create --server <serverId> --file <batch.json> \
+  [--confirm TEMPORARY] [--wait] [--timeout-seconds <n>] --json
+warpmetal sandbox list --server <serverId> --json
+warpmetal sandbox get --server <serverId> --sandbox <sandboxId> [--wait] --json
+warpmetal sandbox action \
+  --server <serverId> --sandbox <sandboxId> \
+  --action <start|stop|restart|make_persistent> --confirm <same-action> \
+  [--wait] --json
+warpmetal sandbox delete \
+  --server <serverId> --sandbox <sandboxId> --confirm DELETE [--wait] --json
+```
+
+See [runtime.md](runtime.md) for capacity, lifetime, cleanup, polling, and
+installation safety. Exit 8 means accepted or pending, never applied.
+
+## Per-agent access
+
+```sh
+warpmetal sandbox access keygen --output <private-key-path> --confirm GENERATE --json
+warpmetal sandbox access grant \
+  --server <serverId> --sandbox <sandboxId> --name <name> \
+  --ssh-public-key-file <public-key-path> \
+  [--connection-file <profile-path>] [--wait] --json
+warpmetal sandbox access list --server <serverId> --sandbox <sandboxId> --json
+warpmetal sandbox access get \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> [--wait] --json
+warpmetal sandbox access revoke \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> \
+  --confirm REVOKE [--wait] --json
+warpmetal sandbox connect --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> [-- <remote-command> <arguments...>]
+```
+
+`sandbox connect` is the only runtime command that does not use `--json`; it
+returns the OpenSSH or remote exit status. `--connection-file` on grant
+creation requires `--wait`.
+
 ## Skill installation and state
 
 ```sh
@@ -84,7 +137,8 @@ warpmetal agent install --target <codex|claude|all> [--scope user|project]
 warpmetal state list --json
 ```
 
-`state list` returns identifiers and credential-presence booleans only. Never
+`state list` returns identifiers, public runtime metadata, and
+credential-presence booleans only. Never
 open the underlying state file from an agent session.
 
 ## Exit codes

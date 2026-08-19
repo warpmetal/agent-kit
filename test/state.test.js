@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -30,7 +30,30 @@ test("state keeps credentials private and redacts summaries", async () => {
 
     const persisted = await readFile(store.path, "utf8");
     assert.equal(persisted.includes("owner_secret_value"), true);
-    if (process.platform !== "win32") assert.equal(await store.permissions(), 0o600);
+    if (process.platform !== "win32")
+      assert.equal(await store.permissions(), 0o600);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("version 1 state migrates to version 2 without losing credentials", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-migration-"));
+  const store = new StateStore(directory);
+  const legacy = {
+    version: 1,
+    orders: { task_old: { taskId: "task_old", ownerToken: "owner-secret" } },
+    servers: { srv_old: { serverId: "srv_old", accessToken: "access-secret" } },
+    operations: { op_old: { operationId: "op_old" } },
+  };
+  try {
+    await writeFile(store.path, JSON.stringify(legacy), { mode: 0o600 });
+    const migrated = await store.read();
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.orders.task_old.ownerToken, "owner-secret");
+    assert.equal(migrated.servers.srv_old.accessToken, "access-secret");
+    assert.deepEqual(migrated.runtimes, {});
+    assert.equal(JSON.parse(await readFile(store.path, "utf8")).version, 2);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

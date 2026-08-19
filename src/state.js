@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { CliError } from "./errors.js";
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 function emptyState() {
   return {
@@ -13,12 +13,19 @@ function emptyState() {
     orders: {},
     servers: {},
     operations: {},
+    runtimes: {},
+    sandboxes: {},
+    accessGrants: {},
   };
 }
 
-export function resolveStateDirectory({ env = process.env, platform = process.platform } = {}) {
+export function resolveStateDirectory({
+  env = process.env,
+  platform = process.platform,
+} = {}) {
   if (env.WARPMETAL_HOME) return resolve(env.WARPMETAL_HOME);
-  if (platform === "win32" && env.APPDATA) return join(env.APPDATA, "WarpMetal");
+  if (platform === "win32" && env.APPDATA)
+    return join(env.APPDATA, "WarpMetal");
   if (env.XDG_CONFIG_HOME) return join(env.XDG_CONFIG_HOME, "warpmetal");
   return join(homedir(), ".config", "warpmetal");
 }
@@ -42,11 +49,39 @@ async function atomicWriteJson(path, value) {
   if (process.platform !== "win32") await chmod(path, 0o600);
 }
 
-function validateState(value) {
-  if (!value || value.version !== STATE_VERSION) {
-    throw new CliError("Unsupported or corrupt WarpMetal state file.", { exitCode: 2 });
+function migrateState(value) {
+  if (
+    value?.version === 1 &&
+    value.orders &&
+    value.servers &&
+    value.operations
+  ) {
+    return {
+      ...value,
+      version: STATE_VERSION,
+      runtimes: {},
+      sandboxes: {},
+      accessGrants: {},
+    };
   }
-  if (!value.orders || !value.servers || !value.operations) {
+  return value;
+}
+
+function validateState(input) {
+  const value = migrateState(input);
+  if (!value || value.version !== STATE_VERSION) {
+    throw new CliError("Unsupported or corrupt WarpMetal state file.", {
+      exitCode: 2,
+    });
+  }
+  if (
+    !value.orders ||
+    !value.servers ||
+    !value.operations ||
+    !value.runtimes ||
+    !value.sandboxes ||
+    !value.accessGrants
+  ) {
     throw new CliError("Incomplete WarpMetal state file.", { exitCode: 2 });
   }
   return value;
@@ -60,11 +95,16 @@ export class StateStore {
 
   async read() {
     try {
-      return validateState(JSON.parse(await readFile(this.path, "utf8")));
+      const raw = JSON.parse(await readFile(this.path, "utf8"));
+      const state = validateState(raw);
+      if (raw.version !== STATE_VERSION) await this.write(state);
+      return state;
     } catch (error) {
       if (error?.code === "ENOENT") return emptyState();
       if (error instanceof SyntaxError) {
-        throw new CliError(`WarpMetal state is not valid JSON: ${this.path}`, { exitCode: 2 });
+        throw new CliError(`WarpMetal state is not valid JSON: ${this.path}`, {
+          exitCode: 2,
+        });
       }
       throw error;
     }
@@ -108,7 +148,10 @@ export class StateStore {
   async savePaymentChallenge(taskId, { paymentRequired, paymentAttemptId }) {
     await this.update((state) => {
       const order = state.orders[taskId];
-      if (!order) throw new CliError(`No local order state exists for ${taskId}.`, { exitCode: 2 });
+      if (!order)
+        throw new CliError(`No local order state exists for ${taskId}.`, {
+          exitCode: 2,
+        });
       order.paymentRequired = paymentRequired;
       order.paymentAttemptId = paymentAttemptId;
       order.paymentChallengeSavedAt = new Date().toISOString();
@@ -131,6 +174,57 @@ export class StateStore {
         serverId,
         kind,
         createdAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  async saveRuntime(serverId, runtime) {
+    if (!runtime?.state) return;
+    await this.update((state) => {
+      state.runtimes[serverId] = {
+        serverId,
+        state: runtime.state,
+        desiredRevision: runtime.desiredRevision,
+        appliedRevision: runtime.appliedRevision,
+        lastSeenAt: runtime.lastSeenAt,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  async saveSandboxes(serverId, sandboxes) {
+    if (!Array.isArray(sandboxes)) return;
+    await this.update((state) => {
+      for (const sandbox of sandboxes) {
+        if (!sandbox?.id) continue;
+        state.sandboxes[sandbox.id] = {
+          serverId,
+          sandboxId: sandbox.id,
+          name: sandbox.name,
+          size: sandbox.size,
+          lifetime: sandbox.lifetime,
+          expiresAt: sandbox.expiresAt,
+          desiredState: sandbox.desiredState,
+          observedState: sandbox.observedState,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    });
+  }
+
+  async saveAccessGrant(serverId, accessGrant, connectionFile) {
+    if (!accessGrant?.id) return;
+    await this.update((state) => {
+      state.accessGrants[accessGrant.id] = {
+        serverId,
+        sandboxId: accessGrant.sandboxId,
+        grantId: accessGrant.id,
+        name: accessGrant.name,
+        sshFingerprint: accessGrant.sshFingerprint,
+        desiredState: accessGrant.desiredState,
+        observedState: accessGrant.observedState,
+        connectionFile,
+        updatedAt: new Date().toISOString(),
       };
     });
   }
@@ -185,6 +279,9 @@ export class StateStore {
         accessTokenExpiresAt: server.accessTokenExpiresAt,
       })),
       operations: Object.values(state.operations),
+      runtimes: Object.values(state.runtimes),
+      sandboxes: Object.values(state.sandboxes),
+      accessGrants: Object.values(state.accessGrants),
     };
   }
 
