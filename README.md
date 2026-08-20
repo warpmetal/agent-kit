@@ -82,9 +82,10 @@ Wallet key management and signing remain outside this package.
   delete their workspace after 15 minutes to 24 hours.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
   second acknowledgment, after which the CLI guides supervisor reinstall and
-  pinned connection-profile refresh. Replacement owner SSH host keys must be
-  verified before updating `known_hosts`; erased workspaces are never described
-  as recoverable.
+  pinned connection-profile refresh. Post-reload owner SSH host keys must be
+  independently verified because the provider may rotate or preserve them;
+  update `known_hosts` only when the verified key changed. Erased workspaces
+  are never described as recoverable.
 
 ## Agent Runtime example
 

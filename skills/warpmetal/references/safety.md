@@ -58,9 +58,11 @@ one lifecycle operation. When Agent Runtime is enabled, also require
 `acknowledgeAgentRuntimeReset`: all sandbox workspaces are permanently erased,
 the supervisor identity is revoked, desired sandboxes are recreated empty
 after reinstall, and all pinned profiles require refresh. Use only the guarded
-CLI command and stop on `manual_review`. Reload also replaces the owner-facing
-SSH host key; verify its fingerprint through a trusted provider or console
-channel before changing `known_hosts`, and never disable host-key checking.
+CLI command and stop on `manual_review`. Reload invalidates the prior
+owner-facing SSH host-key trust decision; the provider may rotate or preserve
+the key. Verify the post-reload fingerprint through a trusted provider or
+console channel, change `known_hosts` only when the verified key changed, and
+never disable host-key checking.
 
 An order preparation is unpaid but consumes a limited prepared-order slot.
 Confirm the plan, hostname, OS, and public key before preparing it.
