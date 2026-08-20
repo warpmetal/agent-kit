@@ -9,7 +9,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "skills", "warp
 test("bundled skill covers runtime safety and forbids raw fallbacks", async () => {
   const skill = await readFile(join(root, "SKILL.md"), "utf8");
   const runtime = await readFile(join(root, "references", "runtime.md"), "utf8");
-  const combined = `${skill}\n${runtime}`;
+  const safety = await readFile(join(root, "references", "safety.md"), "utf8");
+  const combined = `${skill}\n${runtime}\n${safety}`;
   for (const required of [
     "--runtime-file",
     "--confirm INSTALL",
@@ -28,6 +29,10 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "powerOffFirst: true",
     "PasswordAuthentication no",
     "AuthenticationMethods publickey",
+    "--power-off-first",
+    "--acknowledge-agent-runtime-reset",
+    "sandbox access refresh",
+    "--confirm REFRESH",
   ]) {
     assert.ok(combined.includes(required), `missing runtime skill rule: ${required}`);
   }

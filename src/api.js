@@ -188,6 +188,18 @@ export class WarpMetalClient {
     );
   }
 
+  reloadServer(serverId, body, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/api/servers/${encodeURIComponent(serverId)}/reload`,
+      {
+        body,
+        token,
+        idempotencyKey,
+      },
+    );
+  }
+
   getOperation(operationId, token) {
     return this.request(
       "GET",

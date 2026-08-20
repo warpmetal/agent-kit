@@ -68,6 +68,12 @@ warpmetal server power \
   [--wait] [--timeout-seconds <n>] \
   --json
 
+warpmetal server reload \
+  --server <serverId> --confirm ERASE --power-off-first \
+  [--acknowledge-agent-runtime-reset] [--hostname <name>] \
+  [--os <exact-live-os-name>] [--ssh-public-key-file <public-key-path>] \
+  [--idempotency-key <key>] [--wait] [--timeout-seconds <n>] --json
+
 warpmetal operation get \
   --operation <operationId> \
   [--server <serverId>] \
@@ -75,10 +81,11 @@ warpmetal operation get \
   --json
 ```
 
-This CLI version does not expose reload. The public reload API requires both
-`confirm: "ERASE"` and `powerOffFirst: true`, with shutdown, powered-off
-verification, and reload handled by one lifecycle operation. Do not call that
-endpoint with raw HTTP; wait for a guarded CLI command.
+Reload requires the recovery owner credential rather than a short-lived
+SSH-derived token. `--power-off-first` authorizes shutdown and powered-off
+verification inside the same operation. When Agent Runtime is enabled,
+`--acknowledge-agent-runtime-reset` is required because workspaces are erased,
+the supervisor must be reinstalled, and connection profiles must be refreshed.
 
 Use `--token-file` only for recovery when local state is unavailable. Prefer
 `WARPMETAL_OWNER_TOKEN` or `WARPMETAL_ACCESS_TOKEN` for a single command over a
@@ -124,6 +131,9 @@ warpmetal sandbox access grant \
 warpmetal sandbox access list --server <serverId> --sandbox <sandboxId> --json
 warpmetal sandbox access get \
   --server <serverId> --sandbox <sandboxId> --grant <grantId> [--wait] --json
+warpmetal sandbox access refresh \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> \
+  --connection-file <profile-path> --confirm REFRESH [--wait] --json
 warpmetal sandbox access revoke \
   --server <serverId> --sandbox <sandboxId> --grant <grantId> \
   --confirm REVOKE [--wait] --json
@@ -134,6 +144,9 @@ warpmetal sandbox connect --connection-file <profile-path> \
 `sandbox connect` is the only runtime command that does not use `--json`; it
 returns the OpenSSH or remote exit status. `--connection-file` on grant
 creation requires `--wait`.
+`sandbox access refresh` atomically replaces a stale token-free profile with
+the currently applied grant and API-reported pinned host keys; use it after an
+OS reload and supervisor reinstall.
 
 ## Skill installation and state
 

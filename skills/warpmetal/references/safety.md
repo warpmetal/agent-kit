@@ -54,8 +54,13 @@ Obtain explicit user approval immediately before:
 A reload requires both `confirm: "ERASE"` and `powerOffFirst: true`. Treat
 `powerOffFirst` as explicit authorization for WarpMetal to shut down the
 server, wait until it is powered off, and then erase and reinstall it inside
-one lifecycle operation. Do not reconstruct this flow with raw HTTP while the
-installed CLI lacks a guarded reload command.
+one lifecycle operation. When Agent Runtime is enabled, also require
+`acknowledgeAgentRuntimeReset`: all sandbox workspaces are permanently erased,
+the supervisor identity is revoked, desired sandboxes are recreated empty
+after reinstall, and all pinned profiles require refresh. Use only the guarded
+CLI command and stop on `manual_review`. Reload also replaces the owner-facing
+SSH host key; verify its fingerprint through a trusted provider or console
+channel before changing `known_hosts`, and never disable host-key checking.
 
 An order preparation is unpaid but consumes a limited prepared-order slot.
 Confirm the plan, hostname, OS, and public key before preparing it.

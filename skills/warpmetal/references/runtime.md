@@ -145,6 +145,25 @@ The token-free profile is written only after the grant is `applied` and the
 API supplies verified VPS host keys. Do not print or open that profile in an
 agent conversation.
 
+After a destructive OS reload, reinstall the supervisor and wait for the
+retained active grant to become `applied`, then replace its stale pinned
+profile:
+
+```sh
+warpmetal sandbox access refresh \
+  --server <serverId> \
+  --sandbox <sandboxId> \
+  --grant <grantId> \
+  --connection-file <profile-path> \
+  --confirm REFRESH \
+  --wait \
+  --json
+```
+
+The sandbox record is retained, but its old workspace is not; reconciliation
+creates a new empty workspace. Never bypass a host-key mismatch or reuse the
+pre-reload profile.
+
 Connect without an owner management credential:
 
 ```sh

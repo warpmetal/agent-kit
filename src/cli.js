@@ -73,6 +73,9 @@ Usage:
   warpmetal server get --server <serverId>
   warpmetal server power --server <serverId> --action <boot|reboot|shutdown>
     --confirm <same-action> [--wait] [--idempotency-key <key>]
+  warpmetal server reload --server <serverId> --confirm ERASE --power-off-first
+    [--acknowledge-agent-runtime-reset] [--hostname <name>] [--os <exact-name>]
+    [--ssh-public-key-file <path>] [--wait] [--idempotency-key <key>]
   warpmetal operation get --operation <operationId> [--server <serverId>] [--wait]
   warpmetal runtime enable|get --server <serverId> [--wait]
   warpmetal runtime install --server <serverId> --identity <owner-key> --ssh-user <user>
@@ -83,6 +86,8 @@ Usage:
   warpmetal sandbox list|get|action|delete ...
   warpmetal sandbox access keygen --output <private-key-path> --confirm GENERATE
   warpmetal sandbox access grant|list|get|revoke ...
+  warpmetal sandbox access refresh --server <serverId> --sandbox <sandboxId>
+    --grant <grantId> --connection-file <path> --confirm REFRESH [--wait]
   warpmetal sandbox connect --connection-file <path> --identity <sandbox-key> [-- <command>]
   warpmetal state list
   warpmetal agent install --target <codex|claude|all> [--scope <user|project>] [--force]
@@ -193,6 +198,19 @@ async function requireServerToken(store, serverId, options, env) {
   if (!token) {
     throw new CliError(
       `No credential is available for ${serverId}. Run warpmetal server login or provide a recovery token through the environment or --token-file.`,
+      { exitCode: 4 },
+    );
+  }
+  return token;
+}
+
+async function requireReloadToken(store, serverId, options, env) {
+  const token =
+    (await credentialFromFile(options)) ||
+    (await store.serverOwnerToken(serverId, env));
+  if (!token) {
+    throw new CliError(
+      `Reload requires the recovery owner credential for ${serverId} so the CLI can poll after SSH-derived tokens are revoked. Restore the private state file, set WARPMETAL_OWNER_TOKEN, or use --token-file.`,
       { exitCode: 4 },
     );
   }
@@ -614,6 +632,98 @@ async function handleServerPower(client, store, options, context) {
   return result.data.operation.state === "manual_review" ? 6 : 0;
 }
 
+async function applyReloadResult(store, serverId, operation) {
+  if (operation?.state !== "succeeded") return;
+  await store.invalidateServerAccess(serverId);
+  if (operation.result?.reloadImpact?.agentRuntimeAffected) {
+    await store.saveRuntime(serverId, {
+      state: "needs_reinstall",
+      desiredRevision: undefined,
+      appliedRevision: 0,
+      lastSeenAt: null,
+    });
+  }
+}
+
+async function handleServerReload(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  if (stringOption(options, "confirm", { required: true }) !== "ERASE") {
+    throw new CliError("Confirm disk erasure with --confirm ERASE.", {
+      exitCode: 2,
+    });
+  }
+  if (!booleanOption(options, "power-off-first")) {
+    throw new CliError(
+      "Authorize the guarded shutdown with --power-off-first.",
+      { exitCode: 2 },
+    );
+  }
+  const acknowledgeRuntimeReset = booleanOption(
+    options,
+    "acknowledge-agent-runtime-reset",
+  );
+  const token = await requireReloadToken(
+    store,
+    serverId,
+    options,
+    context.env,
+  );
+  const server = (await client.getServer(serverId, token)).data?.task;
+  if (server?.agentRuntime && !acknowledgeRuntimeReset) {
+    throw new CliError(
+      "Agent Runtime is enabled. Reload permanently erases sandbox workspaces, revokes supervisor identity, and requires connection-profile refresh. Confirm with --acknowledge-agent-runtime-reset.",
+      { exitCode: 2 },
+    );
+  }
+
+  const body = {
+    confirm: "ERASE",
+    powerOffFirst: true,
+  };
+  if (acknowledgeRuntimeReset) body.acknowledgeAgentRuntimeReset = true;
+  const hostname = stringOption(options, "hostname");
+  const osName = stringOption(options, "os");
+  const publicKeyFile = stringOption(options, "ssh-public-key-file");
+  if (hostname) body.hostname = hostname;
+  if (osName) body.osName = osName;
+  if (publicKeyFile) body.sshPublicKey = await readSshPublicKey(publicKeyFile);
+
+  const key =
+    stringOption(options, "idempotency-key") || idempotencyKey("reload");
+  let result = await client.reloadServer(serverId, body, token, key);
+  const operationId = result.data?.operation?.id;
+  if (!operationId) {
+    throw new CliError("WarpMetal did not return a reload operation ID.");
+  }
+  await store.saveOperation(operationId, serverId, "reload");
+  if (booleanOption(options, "wait")) {
+    result = await pollOperation(
+      client,
+      operationId,
+      token,
+      integerOption(options, "timeout-seconds", 900),
+    );
+  }
+
+  const operation = result.data?.operation;
+  await applyReloadResult(store, serverId, operation);
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    `Reload operation ${operationId}: ${operation?.state}.` +
+      (operation?.state === "succeeded" &&
+      operation.result?.reloadImpact?.agentRuntimeAffected
+        ? " Verify and refresh the owner SSH host key, reinstall Agent Runtime, then refresh every sandbox connection profile."
+        : operation?.state === "succeeded"
+          ? " Verify and refresh the owner SSH host key before reconnecting."
+        : ""),
+  );
+  if (operation?.state === "manual_review") return 6;
+  if (operation?.state === "failed") return 5;
+  return operation?.state === "succeeded" ? 0 : 8;
+}
+
 async function handleOperationGet(client, store, options, context) {
   const operationId = stringOption(options, "operation", { required: true });
   const saved = await store.operation(operationId);
@@ -626,7 +736,10 @@ async function handleOperationGet(client, store, options, context) {
       },
     );
   }
-  const token = await requireServerToken(store, serverId, options, context.env);
+  const token =
+    saved?.kind === "reload"
+      ? await requireReloadToken(store, serverId, options, context.env)
+      : await requireServerToken(store, serverId, options, context.env);
   const result = booleanOption(options, "wait")
     ? await pollOperation(
         client,
@@ -635,6 +748,9 @@ async function handleOperationGet(client, store, options, context) {
         integerOption(options, "timeout-seconds", 900),
       )
     : await client.getOperation(operationId, token);
+  if (saved?.kind === "reload") {
+    await applyReloadResult(store, serverId, result.data?.operation);
+  }
   emit(
     context.stdout,
     result.data,
@@ -1076,6 +1192,69 @@ async function handleAccessGet(client, store, options, context) {
   return result.data.accessGrant.observedState === "failed" ? 5 : 0;
 }
 
+async function handleAccessRefresh(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const sandboxId = stringOption(options, "sandbox", { required: true });
+  const grantId = stringOption(options, "grant", { required: true });
+  const profilePath = stringOption(options, "connection-file", {
+    required: true,
+  });
+  if (stringOption(options, "confirm", { required: true }) !== "REFRESH") {
+    throw new CliError(
+      "Confirm replacement of the pinned connection profile with --confirm REFRESH.",
+      { exitCode: 2 },
+    );
+  }
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = booleanOption(options, "wait")
+    ? await pollGrant(
+        client,
+        serverId,
+        sandboxId,
+        grantId,
+        token,
+        integerOption(options, "timeout-seconds", 900),
+        (accessGrant) => accessGrant.observedState === "applied",
+      )
+    : await client.getAccessGrant(serverId, sandboxId, grantId, token);
+  if (result.data?.accessGrant?.observedState !== "applied") {
+    emit(
+      context.stdout,
+      { accessGrant: result.data?.accessGrant, connectionFile: null },
+      context.json,
+      `Access grant ${grantId} is not applied; no profile was changed.`,
+    );
+    return result.data?.accessGrant?.observedState === "failed" ? 5 : 8;
+  }
+  const profile = connectionProfile(
+    serverId,
+    sandboxId,
+    grantId,
+    result.data.connection,
+  );
+  const writtenConnectionFile = await writeConnectionProfile(
+    profilePath,
+    profile,
+  );
+  await store.saveAccessGrant(
+    serverId,
+    result.data.accessGrant,
+    writtenConnectionFile,
+  );
+  const safe = {
+    accessGrant: result.data.accessGrant,
+    connection: { available: true, profileWritten: true, printed: false },
+    connectionFile: writtenConnectionFile,
+  };
+  emit(
+    context.stdout,
+    safe,
+    context.json,
+    `Refreshed pinned connection profile for ${grantId} at ${writtenConnectionFile}.`,
+  );
+  return 0;
+}
+
 async function handleAccessRevoke(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const sandboxId = stringOption(options, "sandbox", { required: true });
@@ -1254,6 +1433,22 @@ async function dispatch(positionals, options, passthrough, context) {
         "timeout-seconds",
       ]);
       return handleServerPower(client, store, options, context);
+    case "server reload":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "confirm",
+        "power-off-first",
+        "acknowledge-agent-runtime-reset",
+        "hostname",
+        "os",
+        "ssh-public-key-file",
+        "idempotency-key",
+        "wait",
+        "timeout-seconds",
+      ]);
+      return handleServerReload(client, store, options, context);
     case "operation get":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
@@ -1387,6 +1582,19 @@ async function dispatch(positionals, options, passthrough, context) {
         "timeout-seconds",
       ]);
       return handleAccessGet(client, store, options, context);
+    case "sandbox access refresh":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "sandbox",
+        "grant",
+        "token-file",
+        "connection-file",
+        "confirm",
+        "wait",
+        "timeout-seconds",
+      ]);
+      return handleAccessRefresh(client, store, options, context);
     case "sandbox access revoke":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
