@@ -256,6 +256,148 @@ test("temporary sandbox creation requires exact confirmation before API access",
   assert.match(stderr.value(), /confirm TEMPORARY/i);
 });
 
+test("guarded reload acknowledges runtime loss and returns recovery contract", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-reload-"));
+  const requests = [];
+  const fetchImpl = async (url, request = {}) => {
+    const path = new URL(url).pathname;
+    requests.push({ path, method: request.method, body: request.body });
+    if (request.method === "GET" && path === "/api/servers/srv_runtime12345") {
+      return jsonResponse(200, {
+        task: {
+          serverId: "srv_runtime12345",
+          state: "ready",
+          agentRuntime: { state: "ready", desiredSandboxCount: 3 },
+        },
+      });
+    }
+    if (request.method === "POST" && path.endsWith("/reload")) {
+      return jsonResponse(202, {
+        status: "accepted",
+        operation: { id: "op_reload12345", kind: "reload", state: "queued" },
+        pollPath: "/api/operations/op_reload12345",
+        reloadImpact: {
+          diskDataLost: true,
+          ownerKnownHostsNeedRefresh: true,
+          agentRuntimeAffected: true,
+          workspaceDataLost: true,
+          desiredSandboxesRecreatedEmpty: true,
+          connectionProfilesNeedRefresh: true,
+          nextAction: "install_supervisor",
+        },
+      });
+    }
+    if (request.method === "GET" && path === "/api/operations/op_reload12345") {
+      return jsonResponse(200, {
+        operation: {
+          id: "op_reload12345",
+          kind: "reload",
+          state: "succeeded",
+          result: {
+            providerReloadAccepted: true,
+            targetOperatingSystem: "Rocky Linux 9 (VPS)",
+            reloadImpact: {
+              diskDataLost: true,
+              ownerKnownHostsNeedRefresh: true,
+              agentRuntimeAffected: true,
+              workspaceDataLost: true,
+              desiredSandboxesRecreatedEmpty: true,
+              connectionProfilesNeedRefresh: true,
+              nextAction: "install_supervisor",
+            },
+          },
+        },
+      });
+    }
+    return jsonResponse(404, { error: { message: "not found" } });
+  };
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    const code = await main(
+      [
+        "server",
+        "reload",
+        "--server",
+        "srv_runtime12345",
+        "--confirm",
+        "ERASE",
+        "--power-off-first",
+        "--acknowledge-agent-runtime-reset",
+        "--os",
+        "Rocky Linux 9 (VPS)",
+        "--wait",
+        "--base-url",
+        "http://localhost",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { WARPMETAL_OWNER_TOKEN: "owner-reload-secret" },
+        fetchImpl,
+      },
+    );
+    assert.equal(code, 0, stderr.value());
+    assert.equal(stdout.value().includes("owner-reload-secret"), false);
+    const mutation = requests.find(({ method, path }) =>
+      method === "POST" && path.endsWith("/reload")
+    );
+    assert.deepEqual(JSON.parse(mutation.body), {
+      confirm: "ERASE",
+      powerOffFirst: true,
+      acknowledgeAgentRuntimeReset: true,
+      osName: "Rocky Linux 9 (VPS)",
+    });
+    const output = JSON.parse(stdout.value());
+    assert.equal(
+      output.operation.result.reloadImpact.nextAction,
+      "install_supervisor",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runtime-enabled reload stops before mutation without reset acknowledgment", async () => {
+  let mutated = false;
+  const stderr = capture();
+  const code = await main(
+    [
+      "server",
+      "reload",
+      "--server",
+      "srv_runtime12345",
+      "--confirm",
+      "ERASE",
+      "--power-off-first",
+      "--base-url",
+      "http://localhost",
+      "--json",
+    ],
+    {
+      stdout: capture().stream,
+      stderr: stderr.stream,
+      env: { WARPMETAL_OWNER_TOKEN: "owner-reload-secret" },
+      fetchImpl: async (_url, request = {}) => {
+        if (request.method === "POST") mutated = true;
+        return jsonResponse(200, {
+          task: {
+            serverId: "srv_runtime12345",
+            state: "ready",
+            agentRuntime: { state: "ready", desiredSandboxCount: 1 },
+          },
+        });
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(mutated, false);
+  assert.match(stderr.value(), /acknowledge-agent-runtime-reset/i);
+});
+
 test("sandbox creation uses the fixed public contract and reports pending as exit 8", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-sandbox-create-"));
   const requests = [];
@@ -423,6 +565,78 @@ test("applied access grant writes a token-free profile without printing it", asy
     const profile = JSON.parse(await readFile(profilePath, "utf8"));
     assert.equal(profile.host, "203.0.113.10");
     assert.equal(JSON.stringify(profile).includes("owner-management-secret"), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("access refresh replaces a pinned profile after reload", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-access-refresh-"));
+  const profilePath = join(directory, "agent.connection.json");
+  const hostKey =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const hostFingerprint = `SHA256:${createHash("sha256")
+    .update(Buffer.from(hostKey.split(" ")[1], "base64"))
+    .digest("base64")
+    .replace(/=+$/, "")}`;
+  await writeFile(
+    profilePath,
+    JSON.stringify({ stale: true }),
+  );
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    const code = await main(
+      [
+        "sandbox",
+        "access",
+        "refresh",
+        "--server",
+        "srv_runtime12345",
+        "--sandbox",
+        "sbx_review12345",
+        "--grant",
+        "grant_review12345",
+        "--connection-file",
+        profilePath,
+        "--confirm",
+        "REFRESH",
+        "--base-url",
+        "http://localhost",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { WARPMETAL_OWNER_TOKEN: "owner-management-secret" },
+        fetchImpl: async () =>
+          jsonResponse(200, {
+            accessGrant: {
+              id: "grant_review12345",
+              sandboxId: "sbx_review12345",
+              name: "review-agent",
+              observedState: "applied",
+              desiredState: "active",
+              sshFingerprint: "SHA256:agent",
+            },
+            connection: {
+              host: "203.0.113.20",
+              port: 22,
+              username: "warpmetal-sandbox",
+              hostKeys: [
+                { publicKey: hostKey, fingerprint: hostFingerprint },
+              ],
+            },
+          }),
+      },
+    );
+    assert.equal(code, 0, stderr.value());
+    assert.equal(stdout.value().includes(hostKey), false);
+    const profile = JSON.parse(await readFile(profilePath, "utf8"));
+    assert.equal(profile.host, "203.0.113.20");
+    assert.equal(profile.hostKeys[0].fingerprint, hostFingerprint);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

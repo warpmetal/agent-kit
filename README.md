@@ -4,8 +4,8 @@ The official command-line client and portable Agent Skill for WarpMetal.
 
 The CLI uses the public API at `https://api.warpmetal.com`, stores generated
 WarpMetal credentials in a user-private state file, and never reads or stores
-wallet private keys or SSH private-key contents. Version 0.2 adds the optional
-Agent Runtime workflow for fixed-size, isolated sandboxes on one owner's VPS.
+wallet private keys or SSH private-key contents. Version 0.3 adds guarded OS
+reload and Agent Runtime recovery to the fixed-size, isolated sandbox workflow.
 
 ## Distribution
 
@@ -69,7 +69,7 @@ alternate state directory.
   every OS reload. Password and keyboard-interactive login are disabled; never
   request, store, or expect a VPS login password.
 - The CLI accepts an externally produced x402 `PAYMENT-SIGNATURE` from a file.
-  Wallet key management and signing remain outside this package.
+Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
 - Runtime bootstrap credentials remain memory-only. Signed supervisor bundles
@@ -80,6 +80,11 @@ alternate state directory.
 - Sandboxes use the fixed runtime image and fixed sizes. Persistent is the
   default; temporary sandboxes require explicit confirmation and permanently
   delete their workspace after 15 minutes to 24 hours.
+- Guarded reload powers the server off first. Runtime-enabled reload requires a
+  second acknowledgment, after which the CLI guides supervisor reinstall and
+  pinned connection-profile refresh. Replacement owner SSH host keys must be
+  verified before updating `known_hosts`; erased workspaces are never described
+  as recoverable.
 
 ## Agent Runtime example
 

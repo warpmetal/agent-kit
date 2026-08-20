@@ -261,6 +261,20 @@ export class StateStore {
     return server.ownerToken;
   }
 
+  async serverOwnerToken(serverId, env = process.env) {
+    if (env.WARPMETAL_OWNER_TOKEN) return env.WARPMETAL_OWNER_TOKEN;
+    return (await this.server(serverId))?.ownerToken;
+  }
+
+  async invalidateServerAccess(serverId) {
+    await this.update((state) => {
+      const server = state.servers[serverId];
+      if (!server) return;
+      delete server.accessToken;
+      delete server.accessTokenExpiresAt;
+    });
+  }
+
   async summary() {
     const state = await this.read();
     return {

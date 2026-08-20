@@ -118,13 +118,31 @@ warpmetal server power \
   --json
 ```
 
-Do not fall back to raw API calls for reload, deletion, networking, renewal,
-or another unsupported mutation. Explain that the installed CLI version does
-not yet expose that guarded operation. The public reload contract requires
-both `confirm: "ERASE"` and `powerOffFirst: true`; the latter authorizes the
-same lifecycle operation to shut down the server and wait for provider power
-off before erasing it. This contract knowledge is not permission to bypass the
-CLI restriction.
+For a destructive reload, explain that every server-disk file is erased and
+obtain explicit approval. If Agent Runtime is enabled, also explain that every
+sandbox workspace is lost, desired sandboxes return as empty workspaces after
+reinstall, and pinned profiles must be refreshed. Then use only the guarded
+command:
+
+```sh
+warpmetal server reload \
+  --server <serverId> \
+  --confirm ERASE \
+  --power-off-first \
+  [--acknowledge-agent-runtime-reset] \
+  [--os '<exact-live-os-name>'] \
+  --wait \
+  --json
+```
+
+The CLI requires the recovery owner credential so it can keep polling after
+reload revokes SSH-derived access tokens. On success, reinstall Agent Runtime
+only after verifying the replacement owner-facing SSH host-key fingerprint
+through a trusted provider or console channel and safely updating
+`known_hosts`. Never bypass a mismatch. Then wait for grants to become applied and refresh every
+connection profile with `sandbox access refresh --confirm REFRESH` before
+connecting. Do not fall back to raw API calls for deletion, networking,
+renewal, or another unsupported mutation.
 
 ## Use Agent Runtime
 
