@@ -137,11 +137,12 @@ warpmetal server reload \
 
 The CLI requires the recovery owner credential so it can keep polling after
 reload revokes SSH-derived access tokens. On success, reinstall Agent Runtime
-only after verifying the replacement owner-facing SSH host-key fingerprint
-through a trusted provider or console channel and safely updating
-`known_hosts`. Never bypass a mismatch. Then wait for grants to become applied and refresh every
-connection profile with `sandbox access refresh --confirm REFRESH` before
-connecting. Do not fall back to raw API calls for deletion, networking,
+only after verifying the post-reload owner-facing SSH host-key fingerprint
+through a trusted provider or console channel. The provider may rotate or
+preserve the key; update `known_hosts` only when the verified key changed and
+never bypass a mismatch. Then wait for grants to become applied and refresh
+every connection profile with `sandbox access refresh --confirm REFRESH`
+before connecting. Do not fall back to raw API calls for deletion, networking,
 renewal, or another unsupported mutation.
 
 ## Use Agent Runtime
