@@ -176,6 +176,54 @@ export class WarpMetalClient {
     });
   }
 
+  getRenewalPolicy(serverId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      { token },
+    );
+  }
+
+  putRenewalPolicy(serverId, body, token) {
+    return this.request(
+      "PUT",
+      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      { body, token },
+    );
+  }
+
+  deleteRenewalPolicy(serverId, token) {
+    return this.request(
+      "DELETE",
+      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      { token },
+    );
+  }
+
+  getNotifications(serverId, token) {
+    return this.request(
+      "GET",
+      `/api/servers/${encodeURIComponent(serverId)}/notifications`,
+      { token },
+    );
+  }
+
+  putNotifications(serverId, body, token) {
+    return this.request(
+      "PUT",
+      `/api/servers/${encodeURIComponent(serverId)}/notifications`,
+      { body, token },
+    );
+  }
+
+  renewalCheckout(planId, { bodyText, token, paymentSignature }) {
+    return this.checkout(`/api/checkout/${encodeURIComponent(planId)}/renew`, {
+      bodyText,
+      token,
+      paymentSignature,
+    });
+  }
+
   powerServer(serverId, action, token, idempotencyKey) {
     return this.request(
       "POST",

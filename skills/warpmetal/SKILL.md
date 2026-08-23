@@ -1,6 +1,6 @@
 ---
 name: warpmetal
-description: Safely purchase and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official warpmetal CLI, including x402api Agent Wallet payment handoff. Use when a shell-capable agent needs live VPS discovery, x402 payment authorization, ordering, provisioning, server management, optional runtime installation, fixed-size sandbox creation, persistent or temporary lifetime, per-agent SSH access, sandbox connection, access revocation, or workspace deletion.
+description: Safely purchase, renew, and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official warpmetal CLI and x402api Agent Wallet. Use when a shell-capable agent needs live VPS discovery, hostname-based SSH identity creation, x402 payment or refill handling, bounded autonomous renewal, human lifecycle notifications, ordering, provisioning, server management, optional runtime installation, sandbox creation, per-agent SSH access, revocation, or deletion.
 ---
 
 # WarpMetal
@@ -23,6 +23,8 @@ with ad hoc HTTP commands.
    funding a wallet, authorizing payment, or resolving an ambiguous attempt.
 7. Read [references/runtime.md](references/runtime.md) before requesting,
    installing, accessing, expiring, or deleting Agent Runtime sandboxes.
+8. Read [references/renewals.md](references/renewals.md) before configuring or
+   executing an autonomous renewal or requesting a wallet refill.
 
 Never read, print, summarize, upload, or commit the WarpMetal state file,
 x402api keystore, password file, payment request envelope, or payment artifact.
@@ -52,17 +54,26 @@ or price from documentation or a previous session.
 
 ## Prepare an order
 
-Confirm the intended plan, exact OS, hostname, and existing SSH public-key file
-with the user. Ask before generating a new SSH key pair.
+Confirm the intended plan, exact OS, and actual hostname. In a live human
+conversation, ask before generating a new SSH key pair. In an unattended run,
+generate a dedicated identity only when the automation policy permits creating
+local credentials. Use the actual hostname as the readable key name; the CLI
+adds `warpmetal-` and a short suffix only when a file already exists.
 
 ```sh
 warpmetal order prepare \
   --plan <planId> \
   --hostname <hostname> \
   --os '<exact live OS name>' \
-  --ssh-public-key-file <public-key-path> \
+  --generate-ssh-key \
   --json
 ```
+
+Use `--ssh-public-key-file <public-key-path>` instead only when a suitable key
+was explicitly selected. Never run raw `ssh-keygen` for the VPS owner identity.
+The CLI creates and binds `serverId -> key name -> fingerprint -> local paths`.
+Inspect the safe mapping with `warpmetal server identity --server <serverId>
+--json`; do not open the state file.
 
 The CLI saves the generated recovery credential privately and does not print
 it. Preserve the reported task and server IDs in the conversation, but do not
@@ -124,6 +135,31 @@ human is chatting and the terms changed; in an unattended run, proceed only if
 the replacement remains within standing authority. On `manual_review` or an
 ambiguous attempt, stop and never create another payment.
 
+## Renew autonomously within policy
+
+Configure a bounded server policy before unattended renewal. Require a
+per-payment ceiling and either a maximum renewal count or `renewThrough`; use a
+cumulative ceiling when required by the operator. Bind a local Agent Wallet
+whose network and asset exactly match the policy. See
+[references/renewals.md](references/renewals.md) for commands and the complete
+state machine.
+
+In a live human conversation, disclose the exact renewal terms before signing.
+In an unattended run, do not seek conversational approval when the policy,
+wallet ceiling, exact live challenge, and balance all permit payment. Stop on a
+price, asset, network, count, horizon, or total-budget mismatch.
+
+Run `warpmetal renewal prepare --server <serverId> --json`, then invoke only
+the returned `paymentWorkflow.authorize.argv` and
+`paymentWorkflow.submit.argv`. If authorization reports insufficient balance,
+set the returned `refillWorkflow.environment`, invoke its exact argv once, and
+stop until funding arrives. The signed refill intent resolves to a verified
+human contact; never add an email address to it. Never make a partial payment.
+
+After funding, prepare again, authorize exactly once, submit with WarpMetal,
+and confirm the returned `termEndsAt`. On `reconcile_pending` or
+`manual_review`, do not create another authorization.
+
 ## Provision and manage
 
 Poll a prepared or paid order with:
@@ -141,7 +177,7 @@ For routine management, prove possession of the installed SSH key without
 reading it:
 
 ```sh
-warpmetal server login --server <serverId> --identity <private-key-path> --json
+warpmetal server login --server <serverId> --json
 warpmetal server get --server <serverId> --json
 ```
 
@@ -182,7 +218,7 @@ preserve the key; update `known_hosts` only when the verified key changed and
 never bypass a mismatch. Then wait for grants to become applied and refresh
 every connection profile with `sandbox access refresh --confirm REFRESH`
 before connecting. Do not fall back to raw API calls for deletion, networking,
-renewal, or another unsupported mutation.
+or another unsupported mutation.
 
 ## Use Agent Runtime
 

@@ -694,6 +694,8 @@ export async function readPaymentArtifact(path, expected) {
 
 export function paymentWorkflow({
   taskId,
+  serverId,
+  kind = "checkout",
   requestEnvelopePath,
   paymentArtifactPath,
 }) {
@@ -746,17 +748,30 @@ export function paymentWorkflow({
       ],
     },
     submit: {
-      argv: [
-        "warpmetal",
-        "checkout",
-        "submit",
-        "--task",
-        taskId,
-        "--payment-artifact",
-        paymentArtifactPath,
-        "--wait",
-        "--json",
-      ],
+      argv:
+        kind === "renewal"
+          ? [
+              "warpmetal",
+              "renewal",
+              "submit",
+              "--server",
+              serverId,
+              "--payment-artifact",
+              paymentArtifactPath,
+              "--wait",
+              "--json",
+            ]
+          : [
+              "warpmetal",
+              "checkout",
+              "submit",
+              "--task",
+              taskId,
+              "--payment-artifact",
+              paymentArtifactPath,
+              "--wait",
+              "--json",
+            ],
     },
     compatibility: {
       alternativeInput: "--payment-signature-file <path>",

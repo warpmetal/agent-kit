@@ -4,6 +4,8 @@
 
 - Discovery
 - Purchase and provisioning
+- SSH identities
+- Renewal and notifications
 - Server management
 - Agent Runtime and sandboxes
 - Per-agent access
@@ -27,7 +29,7 @@ warpmetal order prepare \
   --plan <live planId> \
   --hostname <dns-label> \
   --os '<exact live OS name>' \
-  --ssh-public-key-file <path> \
+  (--generate-ssh-key [--ssh-key-name <name>] | --ssh-public-key-file <path>) \
   [--runtime-file <runtime.json>] [--confirm TEMPORARY] \
   [--email <address>] \
   [--idempotency-key <key>] \
@@ -74,12 +76,53 @@ It reports only safe attempt metadata. The compatibility
 never creates, imports, reads, or stores wallet keys and does not sign x402
 challenges itself. See [payments.md](payments.md).
 
+## SSH identities
+
+```sh
+warpmetal identity generate --hostname <dns-label> [--ssh-key-name <name>] --json
+warpmetal identity list --json
+warpmetal server identity --server <serverId> --json
+warpmetal server identity attach \
+  --server <serverId> --identity <private-key-path> \
+  [--ssh-key-name <name>] --json
+```
+
+Generated identities live under the private WarpMetal state directory. The
+default name is `warpmetal-<actual-hostname>`. Existing files are never
+overwritten; a collision adds a short suffix. Order completion binds the local
+identity to `serverId`, and later SSH-backed commands select it automatically.
+
+## Renewal and notifications
+
+```sh
+warpmetal renewal configure \
+  --server <serverId> --renew-before-days <n> \
+  --maximum-payment-atomic <amount> \
+  (--maximum-renewals <n> | --renew-through <UTC>) \
+  [--maximum-total-spend-atomic <amount>] \
+  --allowed-network <network> --allowed-asset <asset> \
+  --wallet <name> [--refill-target-atomic <amount>] [--email <address>] --json
+warpmetal renewal status --server <serverId> --json
+warpmetal renewal due (--server <serverId> | --all) --json
+warpmetal renewal prepare --server <serverId> --json
+warpmetal renewal submit --server <serverId> \
+  --payment-artifact <path> [--wait] --json
+warpmetal renewal run (--server <serverId> | --all-due) --json
+warpmetal notifications configure --server <serverId> --email <address> \
+  [--events <comma-separated-events>] --json
+warpmetal notifications status --server <serverId> --json
+```
+
+`renewal prepare` returns exact payment and refill argv arrays. `renewal run`
+is an agent-facing state machine, not a wallet-signing daemon. See
+[renewals.md](renewals.md).
+
 ## Server management
 
 ```sh
 warpmetal server login \
   --server <serverId> \
-  --identity <private-key-path> \
+  [--identity <private-key-path>] \
   --json
 
 warpmetal server get --server <serverId> --json
@@ -95,7 +138,8 @@ warpmetal server power \
 warpmetal server reload \
   --server <serverId> --confirm ERASE --power-off-first \
   [--acknowledge-agent-runtime-reset] [--hostname <name>] \
-  [--os <exact-live-os-name>] [--ssh-public-key-file <public-key-path>] \
+  [--os <exact-live-os-name>] \
+  [--generate-ssh-key [--ssh-key-name <name>] | --ssh-public-key-file <path>] \
   [--idempotency-key <key>] [--wait] [--timeout-seconds <n>] --json
 
 warpmetal operation get \
@@ -122,7 +166,7 @@ process listings.
 warpmetal runtime enable --server <serverId> [--idempotency-key <key>] --json
 warpmetal runtime get --server <serverId> [--wait] [--timeout-seconds <n>] --json
 warpmetal runtime install \
-  --server <serverId> --identity <owner-key> --ssh-user <admin-user> \
+  --server <serverId> [--identity <owner-key>] --ssh-user <admin-user> \
   --confirm INSTALL [--wait] [--timeout-seconds <n>] --json
 
 warpmetal sandbox create \
