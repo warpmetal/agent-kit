@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.19.0
+      - name: Require tag to match package version
+        run: >-
+          node --input-type=module -e 'import pkg from "./package.json" with
+          {type:"json"}; if (`v${pkg.version}` !== process.env.GITHUB_REF_NAME)
+          throw new Error("release tag does not match package version")'
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm pack --dry-run
+      - run: npm publish --access public

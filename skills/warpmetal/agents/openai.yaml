@@ -1,4 +1,4 @@
 interface:
   display_name: "WarpMetal VPS"
-  short_description: "Manage WarpMetal VPS and agent sandboxes safely"
-  default_prompt: "Use $warpmetal to provision a VPS and manage isolated agent sandboxes safely."
+  short_description: "Purchase and manage WarpMetal compute safely"
+  default_prompt: "Use $warpmetal to purchase a VPS through the guarded x402 wallet handoff and manage isolated agent sandboxes safely."

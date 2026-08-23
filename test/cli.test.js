@@ -5,6 +5,92 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { main } from "../src/cli.js";
+import { digestJson } from "../src/payment.js";
+
+const paymentRequirement = {
+  scheme: "exact",
+  network: "eip155:8453",
+  amount: "20000000",
+  asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  payTo: "0x1111111111111111111111111111111111111111",
+  maxTimeoutSeconds: 180,
+  extra: {
+    assetTransferMethod: "eip3009",
+    name: "USD Coin",
+    payloadProfile: "com.x402api.x402.base-usdc-eip3009-sponsored.v1",
+    version: "2",
+  },
+};
+const recipientDescriptor = {
+  type: "com.k1hub.external-receiving-address.v1",
+  tenantId: "018f4c76-8f9a-7d3a-8e0b-123456789abc",
+  network: paymentRequirement.network,
+  address: paymentRequirement.payTo,
+  controlChallengeDigest: `sha256:${"4".repeat(64)}`,
+};
+const sponsorshipInfoKeys = [
+  "version",
+  "mode",
+  "requirements",
+  "buyerNativeFeeRequired",
+  "billingParty",
+  "maximumReservationEvidenceDigest",
+  "expiresAt",
+  "finalChargePolicy",
+];
+const paymentRequired = {
+  x402Version: 2,
+  resource: {
+    url: "https://api.warpmetal.test/api/checkout/agent",
+    mimeType: "application/json",
+  },
+  accepts: [paymentRequirement],
+  extensions: {
+    "payment-identifier": { info: { required: true } },
+    "com.k1hub.external-recipient": {
+      info: {
+        version: 1,
+        recipients: [
+          {
+            network: paymentRequirement.network,
+            asset: paymentRequirement.asset,
+            payTo: paymentRequirement.payTo,
+            recipientDescriptorDigest: digestJson(recipientDescriptor),
+            recipientDescriptor,
+          },
+        ],
+      },
+    },
+    "com.x402api.gas-sponsorship": {
+      info: {
+        version: 1,
+        mode: "facilitator_pays",
+        requirements: [
+          {
+            network: paymentRequirement.network,
+            asset: paymentRequirement.asset,
+            payloadProfile: paymentRequirement.extra.payloadProfile,
+          },
+        ],
+        buyerNativeFeeRequired: false,
+        billingParty: "tenant_service_credit",
+        maximumReservationEvidenceDigest: `sha256:${"5".repeat(64)}`,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        finalChargePolicy: "canonical_actual_gas_capped_by_reservation",
+      },
+      schema: {
+        $id: "urn:com:x402api:gas-sponsorship:v1",
+        type: "object",
+        additionalProperties: false,
+        required: sponsorshipInfoKeys,
+      },
+    },
+  },
+};
+const paymentRequiredHeader = Buffer.from(
+  JSON.stringify(paymentRequired),
+  "utf8",
+).toString("base64");
 
 function capture() {
   let value = "";
@@ -76,7 +162,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         return jsonResponse(
           402,
           { status: "payment_required", paymentAttemptId: "payment_test" },
-          { "payment-required": "challenge_header_value" },
+          { "payment-required": paymentRequiredHeader },
         );
       }
       return jsonResponse(202, {
@@ -87,7 +173,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     return jsonResponse(404, { error: { message: "Not found" } });
   };
 
-  const baseUrl = "http://localhost";
+  const baseUrl = "https://api.warpmetal.test";
   const stateDirectory = join(directory, "state");
   const publicKeyPath = join(directory, "id_ed25519.pub");
   const signaturePath = join(directory, "payment-signature.txt");
@@ -168,7 +254,63 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challengeExit, 7, challengeErr.value());
     assert.equal(
       JSON.parse(challengeOut.value()).paymentRequired,
-      "challenge_header_value",
+      paymentRequiredHeader,
+    );
+    const challenge = JSON.parse(challengeOut.value());
+    assert.deepEqual(challenge.paymentTerms[0], {
+      scheme: "exact",
+      network: "eip155:8453",
+      amountAtomic: "20000000",
+      asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      payTo: "0x1111111111111111111111111111111111111111",
+      maxTimeoutSeconds: 180,
+      payloadProfile: "com.x402api.x402.base-usdc-eip3009-sponsored.v1",
+      agentWalletSupported: true,
+      sponsoredNetworkFee: true,
+      buyerNativeFeeRequired: false,
+      sponsorshipExpiresAt: "2099-01-01T00:00:00.000Z",
+      requirementDigest: challenge.paymentTerms[0].requirementDigest,
+    });
+    assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
+    assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
+      name: "@x402api/agent-wallet-cli",
+      version: "0.2.1",
+      spec: "@x402api/agent-wallet-cli@0.2.1",
+      registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
+      install: {
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.1"],
+      },
+    });
+    assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
+      "x402api",
+      "help",
+      "--json",
+    ]);
+    assert.deepEqual(challenge.paymentWorkflow.authorize.argv.slice(0, 3), [
+      "x402api",
+      "payment",
+      "authorize",
+    ]);
+    assert.equal(
+      challenge.paymentWorkflow.submit.argv.includes("--payment-artifact"),
+      true,
+    );
+    const requestEnvelope = JSON.parse(
+      await readFile(challenge.paymentWorkflow.requestEnvelopePath, "utf8"),
+    );
+    assert.deepEqual(requestEnvelope, {
+      version: 1,
+      method: "POST",
+      url: "https://api.warpmetal.test/api/checkout/agent",
+      contentType: "application/json",
+      bodyBase64: Buffer.from('{"taskId":"task_test"}').toString("base64"),
+      paymentRequired: paymentRequiredHeader,
+      challengeDigest: challenge.paymentChallengeDigest,
+      merchantReference: "task_test",
+    });
+    assert.equal(
+      JSON.stringify(requestEnvelope).includes("owner_secret_value"),
+      false,
     );
 
     const submitOut = capture();
@@ -198,21 +340,94 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(submitExit, 0, submitErr.value());
     assert.equal(JSON.parse(submitOut.value()).status, "provisioning");
 
+    const artifactSignature = Buffer.from(
+      JSON.stringify({
+        x402Version: 2,
+        accepted: paymentRequirement,
+        payload: { signature: "fixture" },
+        extensions: {
+          ...paymentRequired.extensions,
+          "payment-identifier": {
+            info: { required: true, id: "buyer_payment_test_123" },
+          },
+        },
+        resource: paymentRequired.resource,
+      }),
+      "utf8",
+    ).toString("base64");
+    const artifactPath = challenge.paymentWorkflow.paymentArtifactPath;
+    await writeFile(
+      artifactPath,
+      `${JSON.stringify({
+        version: 1,
+        attemptId: "00000000-0000-4000-8000-000000000001",
+        requestDigest: challenge.paymentRequestDigest,
+        buyerPaymentIdentifier: "buyer_payment_test_123",
+        wallet: "warpmetal-base",
+        payerAddress: "0x2222222222222222222222222222222222222222",
+        selectedRequirementDigest: challenge.paymentTerms[0].requirementDigest,
+        paymentSignature: artifactSignature,
+        createdAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
+
+    const artifactOut = capture();
+    const artifactErr = capture();
+    const artifactExit = await main(
+      [
+        "checkout",
+        "submit",
+        "--task",
+        "task_test",
+        "--payment-artifact",
+        artifactPath,
+        "--base-url",
+        baseUrl,
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: artifactOut.stream,
+        stderr: artifactErr.stream,
+        env: {},
+        cwd: directory,
+        fetchImpl,
+      },
+    );
+    assert.equal(artifactExit, 0, artifactErr.value());
+    const artifactResult = JSON.parse(artifactOut.value());
+    assert.equal(artifactResult.walletPayment.wallet, "warpmetal-base");
+    assert.equal(
+      JSON.stringify(artifactResult).includes(artifactSignature),
+      false,
+    );
+
     const checkoutRequests = requests.filter(
       ({ url }) => url === "/api/checkout/agent",
     );
-    assert.equal(checkoutRequests.length, 2);
+    assert.equal(checkoutRequests.length, 3);
     assert.deepEqual(
       checkoutRequests.map(({ body }) => body),
-      ['{"taskId":"task_test"}', '{"taskId":"task_test"}'],
+      [
+        '{"taskId":"task_test"}',
+        '{"taskId":"task_test"}',
+        '{"taskId":"task_test"}',
+      ],
     );
     assert.deepEqual(
       checkoutRequests.map(({ authorization }) => authorization),
-      ["Bearer owner_secret_value", "Bearer owner_secret_value"],
+      [
+        "Bearer owner_secret_value",
+        "Bearer owner_secret_value",
+        "Bearer owner_secret_value",
+      ],
     );
     assert.deepEqual(
       checkoutRequests.map(({ paymentSignature }) => paymentSignature),
-      [undefined, "signed_header_value"],
+      [undefined, "signed_header_value", artifactSignature],
     );
 
     const stateListOut = capture();
@@ -228,6 +443,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
     assert.equal(stateListExit, 0);
     assert.equal(stateListOut.value().includes("owner_secret_value"), false);
+    assert.equal(
+      JSON.parse(stateListOut.value()).orders[0].walletPaymentAttemptId,
+      "00000000-0000-4000-8000-000000000001",
+    );
     assert.equal(
       (await readFile(join(stateDirectory, "state.json"), "utf8")).includes(
         "owner_secret_value",
