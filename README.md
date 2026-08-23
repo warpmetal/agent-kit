@@ -4,8 +4,10 @@ The official command-line client and portable Agent Skill for WarpMetal.
 
 The CLI uses the public API at `https://api.warpmetal.com`, stores generated
 WarpMetal credentials in a user-private state file, and never reads or stores
-wallet private keys or SSH private-key contents. Version 0.3 adds guarded OS
-reload and Agent Runtime recovery to the fixed-size, isolated sandbox workflow.
+wallet private keys or SSH private-key contents. Version 0.4 adds a guarded
+x402api Agent Wallet handoff: WarpMetal writes the exact credential-free payment
+request, explains the next commands to an agent, validates the returned payment
+artifact, and submits it without absorbing wallet custody.
 
 ## Distribution
 
@@ -21,9 +23,16 @@ remains the stable executable API.
 
 ## Install
 
+WarpMetal supports Node.js 20 and 22. The separate x402api Agent Wallet
+requires Node.js 22; it is not a WarpMetal package dependency. Install the
+published wallet CLI with the exact version WarpMetal reports:
+
 ```sh
 npm install --global warpmetal
 warpmetal --help
+
+npm install --global @x402api/agent-wallet-cli@0.2.1
+x402api help --json
 ```
 
 Install the bundled skill for supported coding agents:
@@ -58,6 +67,44 @@ Pass `--json` for structured, secret-redacted output. Use
 `WARPMETAL_API_URL` for an alternate API origin and `WARPMETAL_HOME` for an
 alternate state directory.
 
+## Pay through the x402api Agent Wallet
+
+After preparing an order, request its live payment challenge:
+
+```sh
+warpmetal checkout challenge --task <taskId> --json
+```
+
+On HTTP 402 the CLI returns exact `paymentTerms`, the pinned
+`@x402api/agent-wallet-cli` package contract, and argv arrays under
+`paymentWorkflow`. It also writes an owner-only request envelope that contains
+the exact checkout URL and body but no WarpMetal credential. The published
+launch wallet accepts sponsored Base USDC and sponsored Solana USDC/USDT only;
+the returned terms identify compatible alternatives and confirm that the buyer
+does not need ETH or SOL. After inspecting the terms and approving payment,
+invoke the returned authorization argv with a dedicated wallet name:
+
+```sh
+x402api payment authorize \
+  --wallet <wallet-name> \
+  --request-envelope <path-returned-by-warpmetal> \
+  --artifact-out <path-returned-by-warpmetal> \
+  --json
+
+warpmetal checkout submit \
+  --task <taskId> \
+  --payment-artifact <owner-only-artifact-path> \
+  --wait \
+  --json
+```
+
+The x402api Agent Wallet is a separate, merchant-neutral executable. Install
+its matching `x402api-pay` skill with `x402api skill install --output <agent-skill-directory>/x402api-pay --json`.
+Do not use `x402api pay`, `payment submit`, or `payment reconcile` for WarpMetal:
+checkout requires the private WarpMetal owner token, so x402api authorizes and
+WarpMetal submits. WarpMetal keeps `--payment-signature-file` for another
+compatible external signer.
+
 ## Security boundary
 
 - Order and access tokens are never printed; they are written to
@@ -68,8 +115,9 @@ alternate state directory.
 - WarpMetal applies key-only OpenSSH configuration on initial provisioning and
   every OS reload. Password and keyboard-interactive login are disabled; never
   request, store, or expect a VPS login password.
-- The CLI accepts an externally produced x402 `PAYMENT-SIGNATURE` from a file.
-Wallet key management and signing remain outside this package.
+- The CLI writes x402api-compatible request envelopes and accepts validated
+  x402api payment artifacts or a compatible external `PAYMENT-SIGNATURE` file.
+  Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
 - Runtime bootstrap credentials remain memory-only. Signed supervisor bundles

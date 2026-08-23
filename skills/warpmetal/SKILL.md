@@ -1,6 +1,6 @@
 ---
 name: warpmetal
-description: Safely purchase and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official warpmetal CLI. Use when a shell-capable agent needs live VPS discovery, x402 ordering, provisioning, server management, optional runtime installation, fixed-size sandbox creation, persistent or temporary lifetime, per-agent SSH access, sandbox connection, access revocation, or workspace deletion.
+description: Safely purchase and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official warpmetal CLI, including x402api Agent Wallet payment handoff. Use when a shell-capable agent needs live VPS discovery, x402 payment authorization, ordering, provisioning, server management, optional runtime installation, fixed-size sandbox creation, persistent or temporary lifetime, per-agent SSH access, sandbox connection, access revocation, or workspace deletion.
 ---
 
 # WarpMetal
@@ -19,12 +19,15 @@ with ad hoc HTTP commands.
    authorizing payment, using an SSH identity, or changing a server.
 5. Read [references/cli-reference.md](references/cli-reference.md) when choosing
    a command or interpreting an exit code.
-6. Read [references/runtime.md](references/runtime.md) before requesting,
+6. Read [references/payments.md](references/payments.md) before creating or
+   funding a wallet, authorizing payment, or resolving an ambiguous attempt.
+7. Read [references/runtime.md](references/runtime.md) before requesting,
    installing, accessing, expiring, or deleting Agent Runtime sandboxes.
 
-Never read, print, summarize, upload, or commit the WarpMetal state file. Never
-read an SSH private-key file. Pass its path only to a command designed to use
-it. Never request or handle a wallet seed phrase or private key.
+Never read, print, summarize, upload, or commit the WarpMetal state file,
+x402api keystore, password file, payment request envelope, or payment artifact.
+Never read an SSH private-key file. Pass private paths only to commands designed
+to use them. Never request or handle a wallet seed phrase or private key.
 
 WarpMetal provisions and reloads servers with key-only OpenSSH access. Password
 and keyboard-interactive login are disabled, including for root. Never request,
@@ -64,26 +67,44 @@ open the state file to retrieve the credential.
 
 ## Authorize payment
 
-Run `warpmetal checkout challenge --task <taskId> --json` to obtain the live
-x402 terms. Before any wallet creation, funding, or signature, show the user
-the exact amount, asset, network, recipient, and expiration derived from the
-live challenge and obtain explicit approval.
+Run `warpmetal checkout challenge --task <taskId> --json`. The CLI validates
+the live x402 terms, writes an owner-only credential-free request envelope, and
+returns `paymentTerms` plus exact `paymentWorkflow.authorize.argv` and
+`paymentWorkflow.submit.argv` arrays. Do not reconstruct those commands or
+open either file.
 
-Use a compatible external wallet signer to produce one `PAYMENT-SIGNATURE`
-header value in a file. Do not pass wallet secrets to WarpMetal or the CLI.
-After approval, submit it with:
+Show the user the exact amount, asset, network, recipient, profile, and maximum
+authorization lifetime from `paymentTerms`; obtain explicit approval before
+signing or submission. Follow [references/payments.md](references/payments.md)
+to install the exact `paymentWorkflow.signerPackage.spec`, verify the V1
+machine contract, install its matching `x402api-pay` skill, and select or fund
+a dedicated network-specific wallet. Require `agentWalletSupported: true`,
+`sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false` on the chosen
+live term. Never fall back to a historical buyer-funded or TRON profile.
+
+After approval, invoke the returned authorize argv once. The separate
+`x402api` executable owns the wallet, validates the envelope, and writes the
+payment artifact. Then invoke the returned submit argv, equivalent to:
 
 ```sh
 warpmetal checkout submit \
   --task <taskId> \
-  --payment-signature-file <path> \
+  --payment-artifact <owner-only-artifact-path> \
   --wait \
   --json
 ```
 
-If the command reports a rejected signature, inspect the replacement live
-challenge and request new approval where its terms changed. If it reports
-`manual_review`, stop immediately and never create another payment.
+Do not use `x402api pay`, `x402api payment submit`, or `x402api payment
+reconcile` for this checkout. Those commands submit credential-free requests,
+but WarpMetal must add its private owner token locally.
+
+WarpMetal verifies that the artifact matches the exact saved request and an
+advertised sponsored requirement, gas reservation, resource, extensions, and
+buyer payment identifier before sending its signature. The legacy
+`--payment-signature-file` input remains available for another compatible
+external signer. If a signed request returns a replacement challenge, use the
+new CLI-produced workflow and request approval again when terms changed. On
+`manual_review` or an ambiguous attempt, stop and never create another payment.
 
 ## Provision and manage
 

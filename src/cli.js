@@ -15,6 +15,13 @@ import { CliError, toErrorMessage } from "./errors.js";
 import { installSkill } from "./install-skill.js";
 import { installRuntime } from "./installer.js";
 import {
+  createPaymentRequestEnvelope,
+  defaultPaymentPaths,
+  paymentWorkflow,
+  readPaymentArtifact,
+  writePaymentRequestEnvelope,
+} from "./payment.js";
+import {
   readSandboxFile,
   requireTemporaryConfirmation,
   sandboxFromOptions,
@@ -66,8 +73,9 @@ Usage:
     --ssh-public-key-file <path> [--runtime-file <path>] [--confirm TEMPORARY]
     [--email <address>] [--idempotency-key <key>]
   warpmetal order status --task <taskId> [--wait] [--timeout-seconds <n>]
-  warpmetal checkout challenge --task <taskId>
-  warpmetal checkout submit --task <taskId> --payment-signature-file <path>
+  warpmetal checkout challenge --task <taskId> [--request-envelope-out <path>]
+  warpmetal checkout submit --task <taskId>
+    (--payment-artifact <path> | --payment-signature-file <path>)
     [--wait] [--timeout-seconds <n>]
   warpmetal server login --server <serverId> --identity <private-key-path>
   warpmetal server get --server <serverId>
@@ -110,6 +118,16 @@ The CLI never accepts bearer tokens directly as command-line arguments.
 
 function writeLine(stream, value = "") {
   stream.write(`${value}\n`);
+}
+
+function shellCommand(argv) {
+  return argv
+    .map((value) =>
+      /^[A-Za-z0-9_./:=+@-]+$/.test(value)
+        ? value
+        : `'${value.replaceAll("'", `'\\''`)}'`,
+    )
+    .join(" ");
 }
 
 function emit(stream, value, json, human) {
@@ -344,6 +362,46 @@ function challengeResult(taskId, checkoutBody, response) {
   };
 }
 
+async function attachPaymentWorkflow(
+  client,
+  store,
+  taskId,
+  order,
+  safe,
+  requestedEnvelopePath,
+) {
+  if (!safe.paymentRequired) return safe;
+  const request = createPaymentRequestEnvelope({
+    baseUrl: client.baseUrl,
+    checkoutPath: order.checkoutPath,
+    checkoutBody: order.checkoutBody,
+    paymentRequired: safe.paymentRequired,
+    merchantReference: taskId,
+  });
+  const defaults = defaultPaymentPaths(
+    store.directory,
+    taskId,
+    request.challengeDigest,
+  );
+  const requestEnvelopePath = await writePaymentRequestEnvelope(
+    requestedEnvelopePath || defaults.requestEnvelopePath,
+    request.envelope,
+  );
+  const workflow = paymentWorkflow({
+    taskId,
+    requestEnvelopePath,
+    paymentArtifactPath: defaults.paymentArtifactPath,
+  });
+  Object.assign(safe, {
+    paymentTerms: request.terms,
+    paymentRequestDigest: request.requestDigest,
+    paymentChallengeDigest: request.challengeDigest,
+    paymentWorkflow: workflow,
+  });
+  await store.savePaymentChallenge(taskId, safe);
+  return safe;
+}
+
 async function handleHealth(client, { json, stdout }) {
   const result = await client.health();
   emit(
@@ -470,16 +528,23 @@ async function handleCheckoutChallenge(client, store, options, context) {
     bodyText: order.checkoutBody,
     token,
   });
-  const safe = challengeResult(taskId, order.checkoutBody, response);
-  if (safe.paymentRequired) {
-    await store.savePaymentChallenge(taskId, safe);
-  }
+  const safe = await attachPaymentWorkflow(
+    client,
+    store,
+    taskId,
+    order,
+    challengeResult(taskId, order.checkoutBody, response),
+    stringOption(options, "request-envelope-out"),
+  );
+  const paymentInstructions = safe.paymentWorkflow
+    ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
+    : "";
   emit(
     context.stdout,
     safe,
     context.json,
     response.status === 402
-      ? `Payment authorization required for ${taskId}.\nPAYMENT-REQUIRED: ${safe.paymentRequired}`
+      ? `Payment authorization required for ${taskId}.${paymentInstructions}`
       : `Checkout status for ${taskId}: ${safe.status}`,
   );
   return response.status === 409 ? 6 : response.status === 402 ? 7 : 0;
@@ -487,18 +552,44 @@ async function handleCheckoutChallenge(client, store, options, context) {
 
 async function handleCheckoutSubmit(client, store, options, context) {
   const taskId = stringOption(options, "task", { required: true });
-  const signatureFile = stringOption(options, "payment-signature-file", {
-    required: true,
-  });
-  const paymentSignature = await readHeaderValueFile(
-    signatureFile,
-    "The payment signature file",
-  );
+  const signatureFile = stringOption(options, "payment-signature-file");
+  const artifactFile = stringOption(options, "payment-artifact");
+  if (Boolean(signatureFile) === Boolean(artifactFile)) {
+    throw new CliError(
+      "Use exactly one of --payment-artifact or --payment-signature-file.",
+      { exitCode: 2 },
+    );
+  }
   const order = await store.order(taskId);
   if (!order?.checkoutPath || !order?.checkoutBody) {
     throw new CliError(`No exact checkout state exists for ${taskId}.`, {
       exitCode: 2,
     });
+  }
+  let walletPayment;
+  let paymentSignature;
+  if (artifactFile) {
+    if (!order.paymentRequired) {
+      throw new CliError(
+        `No saved PAYMENT-REQUIRED challenge exists for ${taskId}. Run warpmetal checkout challenge first.`,
+        { exitCode: 2 },
+      );
+    }
+    const expected = createPaymentRequestEnvelope({
+      baseUrl: client.baseUrl,
+      checkoutPath: order.checkoutPath,
+      checkoutBody: order.checkoutBody,
+      paymentRequired: order.paymentRequired,
+      merchantReference: taskId,
+    });
+    walletPayment = await readPaymentArtifact(artifactFile, expected);
+    paymentSignature = walletPayment.paymentSignature;
+    await store.saveWalletPaymentAttempt(taskId, walletPayment);
+  } else {
+    paymentSignature = await readHeaderValueFile(
+      signatureFile,
+      "The payment signature file",
+    );
   }
   const token = await requireTaskToken(store, taskId, options, context.env);
   const wait = booleanOption(options, "wait");
@@ -512,8 +603,13 @@ async function handleCheckoutSubmit(client, store, options, context) {
       token,
       paymentSignature,
     });
-    const safe = challengeResult(taskId, order.checkoutBody, response);
-    if (safe.paymentRequired) await store.savePaymentChallenge(taskId, safe);
+    const safe = await attachPaymentWorkflow(
+      client,
+      store,
+      taskId,
+      order,
+      challengeResult(taskId, order.checkoutBody, response),
+    );
     const retryable =
       response.status === 202 &&
       ["payment_pending", "payment_finalizing"].includes(response.data?.status);
@@ -527,6 +623,19 @@ async function handleCheckoutSubmit(client, store, options, context) {
       ...safe,
       task: response.data?.task,
       message: response.data?.message,
+      ...(walletPayment
+        ? {
+            walletPayment: {
+              attemptId: walletPayment.attemptId,
+              requestDigest: walletPayment.requestDigest,
+              buyerPaymentIdentifier: walletPayment.buyerPaymentIdentifier,
+              wallet: walletPayment.wallet,
+              payerAddress: walletPayment.payerAddress,
+              artifactPath: walletPayment.path,
+              expiresAt: walletPayment.expiresAt,
+            },
+          }
+        : {}),
     };
     emit(
       context.stdout,
@@ -662,12 +771,7 @@ async function handleServerReload(client, store, options, context) {
     options,
     "acknowledge-agent-runtime-reset",
   );
-  const token = await requireReloadToken(
-    store,
-    serverId,
-    options,
-    context.env,
-  );
+  const token = await requireReloadToken(store, serverId, options, context.env);
   const server = (await client.getServer(serverId, token)).data?.task;
   if (server?.agentRuntime && !acknowledgeRuntimeReset) {
     throw new CliError(
@@ -717,7 +821,7 @@ async function handleServerReload(client, store, options, context) {
         ? " Verify and refresh the owner SSH host key, reinstall Agent Runtime, then refresh every sandbox connection profile."
         : operation?.state === "succeeded"
           ? " Verify and refresh the owner SSH host key before reconnecting."
-        : ""),
+          : ""),
   );
   if (operation?.state === "manual_review") return 6;
   if (operation?.state === "failed") return 5;
@@ -1399,13 +1503,19 @@ async function dispatch(positionals, options, passthrough, context) {
       ]);
       return handleTaskStatus(client, store, options, context);
     case "checkout challenge":
-      rejectUnknownOptions(options, [...COMMON_OPTIONS, "task", "token-file"]);
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "task",
+        "token-file",
+        "request-envelope-out",
+      ]);
       return handleCheckoutChallenge(client, store, options, context);
     case "checkout submit":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
         "task",
         "token-file",
+        "payment-artifact",
         "payment-signature-file",
         "wait",
         "timeout-seconds",

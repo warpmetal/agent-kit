@@ -34,8 +34,15 @@
 - Give each agent a distinct sandbox-specific SSH key and grant. Never reuse
   the owner host key or one agent key across multiple sandboxes.
 - Never request, read, transmit, or store a wallet seed phrase or private key.
-- Never put a token, payment signature, private key, or state-file content in
-  a prompt, URL, log, screenshot, source file, or shell argument.
+- Install only the exact `@x402api/agent-wallet-cli` version and matching
+  bundled `x402api-pay` skill reported by WarpMetal. Never substitute an
+  unpinned repository checkout or similarly named wallet package.
+- Never read or display an x402api password file, encrypted keystore, request
+  envelope, payment artifact, or complete payment signature. Pass only their
+  paths to the documented commands.
+- Never put a token, payment signature, payment artifact, wallet password,
+  private key, or state-file content in a prompt, URL, log, screenshot, source
+  file, or shell argument.
 
 ## Required confirmations
 
@@ -71,9 +78,13 @@ Confirm the plan, hostname, OS, and public key before preparing it.
 
 - Reuse the same idempotency key only for the exact same logical request.
 - For `payment_pending`, retry the exact checkout body and the exact same
-  payment signature. Do not create a replacement payment.
+  payment artifact. Do not create a replacement payment.
 - A signed HTTP 402 rejects that signature. Use the new live challenge for one
-  replacement authorization.
+  replacement authorization after checking the new terms and approval.
+- On timeout or restart after wallet authorization, reuse the saved x402api
+  attempt and artifact through WarpMetal. Never authorize again merely because
+  submission or fulfillment is uncertain, and never send the private owner
+  token through `x402api pay`, `payment submit`, or `payment reconcile`.
 - Treat `manual_review` as terminal. Do not pay again and do not repeat the
   mutation.
 - Treat HTTP 202 as accepted or pending, never as proof of success. Poll the

@@ -145,7 +145,16 @@ export class StateStore {
     });
   }
 
-  async savePaymentChallenge(taskId, { paymentRequired, paymentAttemptId }) {
+  async savePaymentChallenge(
+    taskId,
+    {
+      paymentRequired,
+      paymentAttemptId,
+      paymentRequestDigest,
+      paymentChallengeDigest,
+      paymentWorkflow,
+    },
+  ) {
     await this.update((state) => {
       const order = state.orders[taskId];
       if (!order)
@@ -154,7 +163,48 @@ export class StateStore {
         });
       order.paymentRequired = paymentRequired;
       order.paymentAttemptId = paymentAttemptId;
+      order.paymentRequestDigest = paymentRequestDigest;
+      order.paymentChallengeDigest = paymentChallengeDigest;
+      order.paymentRequestEnvelopePath = paymentWorkflow?.requestEnvelopePath;
+      order.paymentArtifactPath = paymentWorkflow?.paymentArtifactPath;
       order.paymentChallengeSavedAt = new Date().toISOString();
+    });
+  }
+
+  async saveWalletPaymentAttempt(
+    taskId,
+    {
+      attemptId,
+      requestDigest,
+      buyerPaymentIdentifier,
+      wallet,
+      payerAddress,
+      path,
+      expiresAt,
+    },
+  ) {
+    await this.update((state) => {
+      const order = state.orders[taskId];
+      if (!order)
+        throw new CliError(`No local order state exists for ${taskId}.`, {
+          exitCode: 2,
+        });
+      if (
+        order.paymentRequestDigest &&
+        order.paymentRequestDigest !== requestDigest
+      ) {
+        throw new CliError(
+          `The wallet payment attempt does not match the saved challenge for ${taskId}.`,
+          { exitCode: 2 },
+        );
+      }
+      order.walletPaymentAttemptId = attemptId;
+      order.walletBuyerPaymentIdentifier = buyerPaymentIdentifier;
+      order.walletName = wallet;
+      order.walletPayerAddress = payerAddress;
+      order.paymentArtifactPath = path;
+      order.paymentArtifactExpiresAt = expiresAt;
+      order.paymentArtifactSavedAt = new Date().toISOString();
     });
   }
 
@@ -284,6 +334,10 @@ export class StateStore {
         serverId: order.serverId,
         planId: order.planId,
         paymentAttemptId: order.paymentAttemptId,
+        walletPaymentAttemptId: order.walletPaymentAttemptId,
+        walletName: order.walletName,
+        payerAddress: order.walletPayerAddress,
+        paymentArtifactExpiresAt: order.paymentArtifactExpiresAt,
         credentialStored: Boolean(order.ownerToken),
       })),
       servers: Object.values(state.servers).map((server) => ({

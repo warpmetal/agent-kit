@@ -33,11 +33,14 @@ warpmetal order prepare \
   [--idempotency-key <key>] \
   --json
 
-warpmetal checkout challenge --task <taskId> --json
+warpmetal checkout challenge \
+  --task <taskId> \
+  [--request-envelope-out <path>] \
+  --json
 
 warpmetal checkout submit \
   --task <taskId> \
-  --payment-signature-file <path> \
+  (--payment-artifact <path> | --payment-signature-file <path>) \
   [--wait] [--timeout-seconds <n>] \
   --json
 
@@ -47,8 +50,29 @@ warpmetal order status \
   --json
 ```
 
-The payment signature file must contain one HTTP header value. The CLI does
-not create or store wallet keys and does not sign x402 challenges.
+On HTTP 402, `checkout challenge` validates and displays exact payment terms,
+writes a credential-free x402api V1 request envelope with owner-only
+permissions, and returns the exact pinned wallet package, V1 contract probe,
+matching wallet-skill install, authorization, and WarpMetal submission argv
+arrays. The default envelope and suggested artifact paths live under the
+private WarpMetal state directory. An explicit output path must not already
+contain different content.
+
+The current integration targets `@x402api/agent-wallet-cli@0.2.1`. A compatible
+live term is marked `agentWalletSupported: true` and must use the sponsored
+Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
+WarpMetal rejects a challenge with no compatible sponsored term. Because the
+checkout is authenticated, do not substitute `x402api pay`, `payment submit`,
+or `payment reconcile` for the returned WarpMetal submission command.
+
+`--payment-artifact` accepts the owner-only JSON artifact produced by a
+compatible pinned x402api Agent Wallet release. WarpMetal validates its request
+and payment-requirement digests, resource, extensions, buyer payment identifier,
+signature, sponsorship expiry, file type, and permissions before submission.
+It reports only safe attempt metadata. The compatibility
+`--payment-signature-file` input must contain one HTTP header value. WarpMetal
+never creates, imports, reads, or stores wallet keys and does not sign x402
+challenges itself. See [payments.md](payments.md).
 
 ## Server management
 
