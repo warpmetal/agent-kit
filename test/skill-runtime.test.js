@@ -71,5 +71,14 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
   assert.match(runtime, /permanently deletes the workspace/i);
   assert.match(payments, /never\s+authorize again/i);
   assert.match(payments, /Require contract version 1/i);
-  assert.match(payments, /never ask the buyer to fund ETH or SOL/i);
+  assert.match(payments, /never\s+ask the buyer to fund ETH or SOL/i);
+  assert.match(
+    payments,
+    /unattended\s+run, do not wait for conversational approval/i,
+  );
+  assert.match(payments, /x402api wallet address --wallet <name> --json/i);
+  assert.match(payments, /not to the token contract\/mint/i);
+  assert.match(payments, /not to WarpMetal's payment recipient/i);
+  assert.match(payments, /funding_required/i);
+  assert.doesNotMatch(payments, /funds the token address/i);
 });

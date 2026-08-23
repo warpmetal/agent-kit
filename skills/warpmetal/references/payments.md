@@ -37,18 +37,43 @@ skill automatically.
    file, or is supervising `--password-stdin`. Never read either value.
 3. Use `x402api wallet list --json` and reuse a dedicated persistent wallet for
    the exact challenge network.
-4. Create a wallet only with explicit approval. Keep Base and Solana wallets
-   separate; never import the owner's primary seed or key. TRON wallet
-   management exists, but the published launch payer cannot authorize TRON.
-5. Use `x402api wallet balance --wallet <name> --json`. If funding is short,
-   show the public address, exact network, token, and atomic deficit. The owner
-   funds the token address from a wallet they control. Sponsored launch
-   payments never ask the buyer to fund ETH or SOL.
+4. In an interactive conversation, create a wallet only with explicit
+   approval. In an unattended run, create one only when the automation policy
+   already permits it and a secure password source is configured; otherwise
+   reuse a preconfigured wallet or stop. Keep Base and Solana wallets separate;
+   never import the owner's primary seed or key. TRON wallet management exists,
+   but the published launch payer cannot authorize TRON.
+5. Use both public, safe commands before requesting funding:
+
+   ```sh
+   x402api wallet address --wallet <name> --json
+   x402api wallet balance --wallet <name> --json
+   ```
+
+6. If funding is short in an interactive conversation, show the exact deficit
+   in normal token units and atomic units, the exact network, token symbol and
+   contract/mint, and the payer wallet's public receiving address. Tell the
+   human to transfer the token to the payer wallet address, never to the token
+   contract/mint or `paymentTerms.recipient`. Sponsored launch payments never
+   ask the buyer to fund ETH or SOL. Recheck the balance after the transfer.
+7. If funding is short in an unattended run, use only a preconfigured refill
+   or escalation mechanism. Otherwise report `funding_required` and stop; do
+   not invent a human approval step or funding source.
 
 Treat the dedicated wallet's funded balance as spend authority available to
-the agent, bounded by any wallet-local maximum payment policy. WarpMetal still
-requires explicit approval immediately before its payment authorization and
-submission workflow.
+the agent, bounded by any wallet-local maximum payment policy and task or
+operator limits. When a human is actively chatting, disclose the exact live
+terms and obtain confirmation immediately before payment. In an unattended
+run, do not wait for conversational approval; authorize and submit
+autonomously when the terms fit the standing authority.
+
+Use this structure when asking a human to fund the wallet:
+
+> Transfer exactly `<amount> <USDC-or-USDT>` on `<Base-or-Solana>` to the agent
+> wallet `<payer-wallet-address>`. Token contract/mint: `<asset-identifier>`.
+> Send the token to the payer wallet address, not to the token contract/mint and
+> not to WarpMetal's payment recipient. Do not send ETH or SOL; the network fee
+> is sponsored.
 
 ## Exact purchase workflow
 
@@ -102,7 +127,8 @@ another external signer.
   authorize again merely because submission is unknown.
 - Signed HTTP 402: the artifact was definitively rejected. Run the WarpMetal
   challenge flow again, inspect the replacement terms, and authorize one new
-  artifact only when the protocol and approval allow it.
+  artifact only when the protocol and current interactive or autonomous
+  payment authority allow it.
 - `manual_review`: payment or fulfillment may be final. Stop all payment and
   mutation retries.
 - Expired or corrupt artifact, changed request digest, unexpected recipient,
