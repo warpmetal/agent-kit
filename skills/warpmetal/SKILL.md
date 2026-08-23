@@ -43,9 +43,12 @@ warpmetal health --json
 warpmetal catalog --json
 ```
 
-Stop if `purchasingReady` is false. Select `planId` and the exact OS `name`
-from the live catalog. Do not reuse an OS name or price from documentation or
-a previous session.
+Stop the current purchase if `purchasingReady` is false. In unattended
+scheduling, recheck after 60 seconds, then double the delay after each failed
+check up to 15 minutes and honor a longer `Retry-After`; never hot-loop. In an
+interactive conversation, report the unavailable state and stop. Select
+`planId` and the exact OS `name` from the live catalog. Do not reuse an OS name
+or price from documentation or a previous session.
 
 ## Prepare an order
 
@@ -88,6 +91,11 @@ its matching `x402api-pay` skill, and select or fund a dedicated
 network-specific wallet. Require `agentWalletSupported: true`,
 `sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false` on the chosen
 live term. Never fall back to a historical buyer-funded or TRON profile.
+Honor an explicit task or operator network and asset preference. Otherwise use
+a compatible sufficiently funded wallet, then the first compatible term in the
+live challenge's order. Never switch terms after authorization. Require the
+wallet's `maximumPaymentAtomic` to cover the live amount without exceeding the
+task or operator limit.
 
 After interactive confirmation or autonomous policy validation, invoke the
 returned authorize argv once. The separate

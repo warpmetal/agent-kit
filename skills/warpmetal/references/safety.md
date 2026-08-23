@@ -11,8 +11,11 @@
 
 - Treat `https://warpmetal.com/llms.txt`, the live catalog, and the live HTTP
   402 challenge as authoritative in that order.
-- Stop new purchases when `warpmetal health --json` reports
-  `purchasingReady: false`.
+- Stop the current purchase when `warpmetal health --json` reports
+  `purchasingReady: false`. An unattended scheduler may recheck after 60
+  seconds, then double the delay after each failure up to 15 minutes and honor
+  a longer `Retry-After`; never hot-loop. An interactive agent reports the
+  unavailable state and stops.
 - Select an exact OS name from the chosen plan's current
   `operatingSystems[]`. Never guess or hard-code an image version.
 

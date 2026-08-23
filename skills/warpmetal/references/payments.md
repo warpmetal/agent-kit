@@ -42,7 +42,20 @@ skill automatically.
    already permits it and a secure password source is configured; otherwise
    reuse a preconfigured wallet or stop. Keep Base and Solana wallets separate;
    never import the owner's primary seed or key. TRON wallet management exists,
-   but the published launch payer cannot authorize TRON.
+   but the published launch payer cannot authorize TRON. Configure the local
+   per-payment ceiling at creation and inspect it before reuse:
+
+   ```sh
+   x402api wallet create --name <name> \
+     --network <exact-challenge-network> \
+     --maximum-payment-atomic <per-payment-policy-cap> --json
+   x402api wallet show --wallet <name> --json
+   ```
+
+   Require `maximumPaymentAtomic` to be at least the exact live amount and no
+   higher than the task or operator limit. If an existing wallet has no ceiling
+   or an unsuitable one, do not treat its full balance as bounded authority;
+   use a suitably capped dedicated wallet or stop.
 5. Use both public, safe commands before requesting funding:
 
    ```sh
@@ -105,6 +118,12 @@ Choose only a term marked `agentWalletSupported: true`,
 launch profiles are sponsored Base USDC and sponsored Solana USDC/USDT, bound
 by the strict `com.x402api.gas-sponsorship` extension. Stop on an expired gas
 reservation or any buyer-funded, unsupported, or unbound alternative.
+
+Among valid sponsored terms, honor an explicit task or operator network and
+asset preference. Otherwise prefer a compatible wallet that is already
+sufficiently funded. If several terms remain, choose the first compatible term
+in the live challenge's advertised order. Do not switch terms after
+authorization.
 
 Do not replace the two-stage workflow with `x402api pay`, `payment submit`, or
 `payment reconcile`. Those wallet commands can submit an exact credential-free

@@ -76,6 +76,10 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     payments,
     /unattended\s+run, do not wait for conversational approval/i,
   );
+  assert.match(safety, /recheck after 60\s+seconds/i);
+  assert.match(payments, /x402api wallet show --wallet <name> --json/i);
+  assert.match(payments, /--maximum-payment-atomic/i);
+  assert.match(payments, /first compatible term[\s\S]*advertised order/i);
   assert.match(payments, /x402api wallet address --wallet <name> --json/i);
   assert.match(payments, /not to the token contract\/mint/i);
   assert.match(payments, /not to WarpMetal's payment recipient/i);
