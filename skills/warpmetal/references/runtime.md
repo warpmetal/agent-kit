@@ -44,7 +44,7 @@ fields `name`, `size`, optional `lifetime`, and optional `expiresInSeconds`:
 
 Pass it to `warpmetal order prepare --runtime-file <path>`. If it contains a
 temporary sandbox, pass `--confirm TEMPORARY`. Preparing remains unpaid; keep
-the existing separate payment approval.
+the existing separate interactive-or-autonomous payment authority check.
 
 For an existing ready server:
 

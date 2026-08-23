@@ -73,16 +73,24 @@ returns `paymentTerms` plus exact `paymentWorkflow.authorize.argv` and
 `paymentWorkflow.submit.argv` arrays. Do not reconstruct those commands or
 open either file.
 
-Show the user the exact amount, asset, network, recipient, profile, and maximum
-authorization lifetime from `paymentTerms`; obtain explicit approval before
-signing or submission. Follow [references/payments.md](references/payments.md)
-to install the exact `paymentWorkflow.signerPackage.spec`, verify the V1
-machine contract, install its matching `x402api-pay` skill, and select or fund
-a dedicated network-specific wallet. Require `agentWalletSupported: true`,
+Determine payment authority from the current execution context. In an
+interactive conversation, show the human the exact amount, asset, network,
+recipient, profile, and maximum authorization lifetime from `paymentTerms`,
+then obtain confirmation immediately before signing and submission. In an
+unattended autonomous run, do not wait for conversational approval: treat the
+dedicated wallet's available token balance as standing spend authority, bounded
+by its maximum-payment policy and any task or operator limits. Proceed only
+when the exact live terms fit those limits.
+
+Follow [references/payments.md](references/payments.md) to install the exact
+`paymentWorkflow.signerPackage.spec`, verify the V1 machine contract, install
+its matching `x402api-pay` skill, and select or fund a dedicated
+network-specific wallet. Require `agentWalletSupported: true`,
 `sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false` on the chosen
 live term. Never fall back to a historical buyer-funded or TRON profile.
 
-After approval, invoke the returned authorize argv once. The separate
+After interactive confirmation or autonomous policy validation, invoke the
+returned authorize argv once. The separate
 `x402api` executable owns the wallet, validates the envelope, and writes the
 payment artifact. Then invoke the returned submit argv, equivalent to:
 
@@ -103,8 +111,10 @@ advertised sponsored requirement, gas reservation, resource, extensions, and
 buyer payment identifier before sending its signature. The legacy
 `--payment-signature-file` input remains available for another compatible
 external signer. If a signed request returns a replacement challenge, use the
-new CLI-produced workflow and request approval again when terms changed. On
-`manual_review` or an ambiguous attempt, stop and never create another payment.
+new CLI-produced workflow and re-evaluate payment authority. Ask again when a
+human is chatting and the terms changed; in an unattended run, proceed only if
+the replacement remains within standing authority. On `manual_review` or an
+ambiguous attempt, stop and never create another payment.
 
 ## Provision and manage
 

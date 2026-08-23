@@ -44,9 +44,10 @@
   private key, or state-file content in a prompt, URL, log, screenshot, source
   file, or shell argument.
 
-## Required confirmations
+## Interactive confirmations and autonomous payment authority
 
-Obtain explicit user approval immediately before:
+When a human is actively directing the current task in a conversation, obtain
+explicit approval immediately before:
 
 - installing the CLI or skill;
 - installing or repairing the Agent Runtime supervisor;
@@ -57,6 +58,16 @@ Obtain explicit user approval immediately before:
 - creating a temporary sandbox after explaining its irreversible expiry;
 - revoking a sandbox access grant; and
 - any destructive reload, sandbox deletion, or replacement-key operation.
+
+In an unattended autonomous run, do not pause payment for conversational
+approval. A pre-funded dedicated wallet provides standing spend authority,
+bounded by its maximum-payment policy and any task or operator limits. Sign and
+submit only when the exact live amount, asset, network, recipient, profile,
+resource binding, and sponsorship fit those limits. Unattended mode does not
+grant unlimited spend, permission to import a primary wallet, or permission to
+use unsupported or buyer-funded payment rails. If the wallet is short and no
+preconfigured refill or escalation mechanism exists, report
+`funding_required` and stop.
 
 A reload requires both `confirm: "ERASE"` and `powerOffFirst: true`. Treat
 `powerOffFirst` as explicit authorization for WarpMetal to shut down the
@@ -80,7 +91,8 @@ Confirm the plan, hostname, OS, and public key before preparing it.
 - For `payment_pending`, retry the exact checkout body and the exact same
   payment artifact. Do not create a replacement payment.
 - A signed HTTP 402 rejects that signature. Use the new live challenge for one
-  replacement authorization after checking the new terms and approval.
+  replacement authorization after checking the new terms against the current
+  interactive or autonomous payment authority.
 - On timeout or restart after wallet authorization, reuse the saved x402api
   attempt and artifact through WarpMetal. Never authorize again merely because
   submission or fulfillment is uncertain, and never send the private owner

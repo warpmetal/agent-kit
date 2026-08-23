@@ -81,8 +81,16 @@ On HTTP 402 the CLI returns exact `paymentTerms`, the pinned
 the exact checkout URL and body but no WarpMetal credential. The published
 launch wallet accepts sponsored Base USDC and sponsored Solana USDC/USDT only;
 the returned terms identify compatible alternatives and confirm that the buyer
-does not need ETH or SOL. After inspecting the terms and approving payment,
-invoke the returned authorization argv with a dedicated wallet name:
+does not need ETH or SOL. Payment authority depends on execution context:
+
+- When a human is actively chatting with the agent, show the exact live terms
+  and ask for confirmation immediately before authorizing and submitting.
+- In an unattended run, a pre-funded dedicated wallet is standing spend
+  authority, bounded by its maximum-payment policy and any task or operator
+  limits. When the live terms fit those limits, authorize and submit without
+  waiting for conversational approval.
+
+Then invoke the returned authorization argv with a dedicated wallet name:
 
 ```sh
 x402api payment authorize \
@@ -97,6 +105,21 @@ warpmetal checkout submit \
   --wait \
   --json
 ```
+
+Check the payer wallet address and balance with:
+
+```sh
+x402api wallet address --wallet <wallet-name> --json
+x402api wallet balance --wallet <wallet-name> --json
+```
+
+If funding is short in an interactive conversation, tell the human the exact
+top-up in normal and atomic units, the network, stablecoin and contract/mint,
+and the payer wallet's public receiving address. The human sends the token to
+that wallet address, never to the token contract/mint or WarpMetal's payment
+recipient, and never sends ETH or SOL for a sponsored payment. In an unattended
+run, use a preconfigured refill or escalation mechanism or stop with
+`funding_required`.
 
 The x402api Agent Wallet is a separate, merchant-neutral executable. Install
 its matching `x402api-pay` skill with `x402api skill install --output <agent-skill-directory>/x402api-pay --json`.
