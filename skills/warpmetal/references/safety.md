@@ -28,6 +28,12 @@
 - Never read or transmit an SSH private key. Pass only its filesystem path to
   `warpmetal server login`, `warpmetal runtime install`,
   `warpmetal sandbox connect`, or `ssh-keygen`.
+- Generate a VPS owner identity through `warpmetal order prepare
+  --generate-ssh-key` or `warpmetal identity generate`, not a raw shell
+  command. The actual hostname is the readable key name. Never reuse or
+  overwrite a generated owner key merely because another server has the same
+  hostname; let the CLI add its collision suffix and bind the identity to
+  `serverId`.
 - WarpMetal disables VPS password and keyboard-interactive SSH login after
   initial provisioning and every OS reload. Never request, store, invent, or
   expect a VPS login password; use the submitted public key and matching
@@ -71,6 +77,14 @@ grant unlimited spend, permission to import a primary wallet, or permission to
 use unsupported or buyer-funded payment rails. If the wallet is short and no
 preconfigured refill or escalation mechanism exists, report
 `funding_required` and stop.
+
+For renewal, require an enabled server policy with a per-payment ceiling and a
+bounded count or date horizon. Also enforce the exact network, asset, wallet
+ceiling, and cumulative budget when configured. A refill target is not a spend
+ceiling. Never pay outside policy, split a payment, or authorize twice to
+resolve ambiguity. A signed refill request may contain only the opaque
+subscription reference and wallet-produced fields; never add a recipient
+email or untrusted product text.
 
 A reload requires both `confirm: "ERASE"` and `powerOffFirst: true`. Treat
 `powerOffFirst` as explicit authorization for WarpMetal to shut down the

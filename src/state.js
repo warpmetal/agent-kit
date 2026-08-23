@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { CliError } from "./errors.js";
 
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 function emptyState() {
   return {
@@ -16,6 +16,8 @@ function emptyState() {
     runtimes: {},
     sandboxes: {},
     accessGrants: {},
+    identities: {},
+    renewals: {},
   };
 }
 
@@ -62,6 +64,24 @@ function migrateState(value) {
       runtimes: {},
       sandboxes: {},
       accessGrants: {},
+      identities: {},
+      renewals: {},
+    };
+  }
+  if (
+    value?.version === 2 &&
+    value.orders &&
+    value.servers &&
+    value.operations &&
+    value.runtimes &&
+    value.sandboxes &&
+    value.accessGrants
+  ) {
+    return {
+      ...value,
+      version: STATE_VERSION,
+      identities: {},
+      renewals: {},
     };
   }
   return value;
@@ -80,7 +100,9 @@ function validateState(input) {
     !value.operations ||
     !value.runtimes ||
     !value.sandboxes ||
-    !value.accessGrants
+    !value.accessGrants ||
+    !value.identities ||
+    !value.renewals
   ) {
     throw new CliError("Incomplete WarpMetal state file.", { exitCode: 2 });
   }
@@ -121,7 +143,7 @@ export class StateStore {
     return result;
   }
 
-  async savePreparedOrder(response, checkoutBody) {
+  async savePreparedOrder(response, checkoutBody, identityId) {
     const { task, ownerToken } = response;
     if (!task?.id || !task?.serverId || !ownerToken) {
       throw new CliError("WarpMetal returned an incomplete prepared order.");
@@ -134,6 +156,7 @@ export class StateStore {
         checkoutPath: task.checkoutPath,
         checkoutBody,
         ownerToken,
+        identityId,
         createdAt: new Date().toISOString(),
       };
       state.servers[task.serverId] = {
@@ -141,8 +164,115 @@ export class StateStore {
         serverId: task.serverId,
         taskId: task.id,
         ownerToken,
+        identityId,
+      };
+      if (identityId && state.identities[identityId]) {
+        state.identities[identityId].taskId = task.id;
+        state.identities[identityId].serverId = task.serverId;
+        state.identities[identityId].boundAt = new Date().toISOString();
+      }
+    });
+  }
+
+  async saveIdentity(identity) {
+    if (!identity?.identityId || !identity?.keyName || !identity?.publicKeyPath) {
+      throw new CliError("The SSH identity record is incomplete.", { exitCode: 2 });
+    }
+    await this.update((state) => {
+      state.identities[identity.identityId] = {
+        ...identity,
+        createdAt: identity.createdAt || new Date().toISOString(),
       };
     });
+    return identity;
+  }
+
+  async bindIdentity(identityId, taskId, serverId) {
+    await this.update((state) => {
+      const identity = state.identities[identityId];
+      if (!identity) {
+        throw new CliError(`No local SSH identity exists for ${identityId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (taskId) identity.taskId = taskId;
+      identity.serverId = serverId;
+      identity.boundAt = new Date().toISOString();
+      const server = state.servers[serverId] || { serverId };
+      server.identityId = identityId;
+      state.servers[serverId] = server;
+    });
+  }
+
+  async identity(identityId) {
+    return (await this.read()).identities[identityId];
+  }
+
+  async identityForServer(serverId) {
+    const state = await this.read();
+    const identityId = state.servers[serverId]?.identityId;
+    if (identityId && state.identities[identityId]) {
+      return state.identities[identityId];
+    }
+    return Object.values(state.identities).find(
+      (identity) => identity.serverId === serverId,
+    );
+  }
+
+  async saveRenewalPolicy(serverId, policy, wallet, refillTargetAtomic) {
+    await this.update((state) => {
+      state.renewals[serverId] = {
+        ...(state.renewals[serverId] || {}),
+        serverId,
+        policy,
+        wallet,
+        refillTargetAtomic,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
+  async saveRenewalChallenge(serverId, challenge) {
+    await this.update((state) => {
+      const renewal = state.renewals[serverId] || { serverId };
+      Object.assign(renewal, challenge, {
+        challengeSavedAt: new Date().toISOString(),
+      });
+      state.renewals[serverId] = renewal;
+    });
+  }
+
+  async saveRenewalPaymentAttempt(serverId, payment) {
+    await this.update((state) => {
+      const renewal = state.renewals[serverId];
+      if (!renewal) {
+        throw new CliError(`No local renewal state exists for ${serverId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (
+        renewal.paymentRequestDigest &&
+        renewal.paymentRequestDigest !== payment.requestDigest
+      ) {
+        throw new CliError(
+          `The wallet payment attempt does not match the saved renewal for ${serverId}.`,
+          { exitCode: 2 },
+        );
+      }
+      Object.assign(renewal, {
+        walletPaymentAttemptId: payment.attemptId,
+        walletBuyerPaymentIdentifier: payment.buyerPaymentIdentifier,
+        walletName: payment.wallet,
+        walletPayerAddress: payment.payerAddress,
+        paymentArtifactPath: payment.path,
+        paymentArtifactExpiresAt: payment.expiresAt,
+        paymentArtifactSavedAt: new Date().toISOString(),
+      });
+    });
+  }
+
+  async renewal(serverId) {
+    return (await this.read()).renewals[serverId];
   }
 
   async savePaymentChallenge(
@@ -217,12 +347,13 @@ export class StateStore {
     });
   }
 
-  async saveOperation(operationId, serverId, kind) {
+  async saveOperation(operationId, serverId, kind, metadata = {}) {
     await this.update((state) => {
       state.operations[operationId] = {
         operationId,
         serverId,
         kind,
+        ...metadata,
         createdAt: new Date().toISOString(),
       };
     });
@@ -350,6 +481,26 @@ export class StateStore {
       runtimes: Object.values(state.runtimes),
       sandboxes: Object.values(state.sandboxes),
       accessGrants: Object.values(state.accessGrants),
+      identities: Object.values(state.identities).map((identity) => ({
+        identityId: identity.identityId,
+        keyName: identity.keyName,
+        hostnameAtCreation: identity.hostnameAtCreation,
+        publicKeyPath: identity.publicKeyPath,
+        privateKeyPath: identity.privateKeyPath,
+        sshFingerprint: identity.sshFingerprint,
+        serverId: identity.serverId,
+        taskId: identity.taskId,
+        createdAt: identity.createdAt,
+        boundAt: identity.boundAt,
+      })),
+      renewals: Object.values(state.renewals).map((renewal) => ({
+        serverId: renewal.serverId,
+        wallet: renewal.wallet,
+        refillTargetAtomic: renewal.refillTargetAtomic,
+        policy: renewal.policy,
+        paymentAttemptId: renewal.paymentAttemptId,
+        paymentArtifactExpiresAt: renewal.paymentArtifactExpiresAt,
+      })),
     };
   }
 

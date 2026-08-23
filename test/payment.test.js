@@ -8,8 +8,32 @@ import {
   canonicalJson,
   createPaymentRequestEnvelope,
   digestJson,
+  paymentWorkflow,
   readPaymentArtifact,
 } from "../src/payment.js";
+
+test("renewal payment workflow hands the exact artifact back to WarpMetal", () => {
+  const workflow = paymentWorkflow({
+    taskId: "task_renewal",
+    serverId: "srv_renewal",
+    kind: "renewal",
+    requestEnvelopePath: "/private/renewal.request.json",
+    paymentArtifactPath: "/private/renewal.payment.json",
+  });
+  assert.deepEqual(workflow.submit.argv, [
+    "warpmetal",
+    "renewal",
+    "submit",
+    "--server",
+    "srv_renewal",
+    "--payment-artifact",
+    "/private/renewal.payment.json",
+    "--wait",
+    "--json",
+  ]);
+  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.1");
+  assert.equal(workflow.signerNodeRequirement, ">=22");
+});
 
 const requirement = {
   scheme: "exact",

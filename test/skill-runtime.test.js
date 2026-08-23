@@ -22,7 +22,11 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "utf8",
   );
   const safety = await readFile(join(root, "references", "safety.md"), "utf8");
-  const combined = `${skill}\n${runtime}\n${payments}\n${safety}`;
+  const renewals = await readFile(
+    join(root, "references", "renewals.md"),
+    "utf8",
+  );
+  const combined = `${skill}\n${runtime}\n${payments}\n${safety}\n${renewals}`;
   for (const required of [
     "--runtime-file",
     "--confirm INSTALL",
@@ -54,6 +58,14 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "agentWalletSupported: true",
     "com.x402api.gas-sponsorship",
     "x402api pay",
+    "--generate-ssh-key",
+    "warpmetal server identity",
+    "warpmetal renewal configure",
+    "warpmetal renewal prepare",
+    "refillWorkflow.argv",
+    "x402api wallet notify-refill",
+    "subscription reference",
+    "reconcile_pending",
   ]) {
     assert.ok(
       combined.includes(required),
@@ -85,4 +97,7 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
   assert.match(payments, /not to WarpMetal's payment recipient/i);
   assert.match(payments, /funding_required/i);
   assert.doesNotMatch(payments, /funds the token address/i);
+  assert.match(renewals, /Never pay outside policy|outside policy/i);
+  assert.match(renewals, /do not sign again/i);
+  assert.match(renewals, /cannot name a recipient\s+email/i);
 });

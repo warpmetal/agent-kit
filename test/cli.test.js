@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { main } from "../src/cli.js";
+import { main, refillRenewBy } from "../src/cli.js";
 import { digestJson } from "../src/payment.js";
+import { StateStore } from "../src/state.js";
 
 const paymentRequirement = {
   scheme: "exact",
@@ -227,6 +228,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       osName: "Ubuntu 24.04 LTS",
       sshPublicKey:
         "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestWarpMetalKey agent@example.test",
+      sshKeyLabel: "warpmetal-id_ed25519",
     });
 
     const challengeOut = capture();
@@ -485,4 +487,135 @@ test("power changes require the same explicit confirmation", async () => {
   );
   assert.equal(exitCode, 2);
   assert.match(stderr.value(), /--confirm reboot/);
+});
+
+test("renewal run all-due returns exact autonomous payment and refill actions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-renewal-run-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const baseUrl = "https://api.warpmetal.test";
+  const renewalRequired = {
+    ...paymentRequired,
+    resource: {
+      ...paymentRequired.resource,
+      url: `${baseUrl}/api/checkout/agent/renew`,
+    },
+  };
+  const renewalHeader = Buffer.from(
+    JSON.stringify(renewalRequired),
+    "utf8",
+  ).toString("base64");
+  const policy = {
+    serverId: "server_renewal",
+    enabled: true,
+    renewBeforeDays: 3,
+    maximumPaymentAtomic: "30000000",
+    maximumRenewals: 12,
+    renewThrough: null,
+    maximumTotalSpendAtomic: "360000000",
+    renewalsCompleted: 0,
+    totalSpendAtomic: "0",
+    allowedNetwork: paymentRequirement.network,
+    allowedAsset: paymentRequirement.asset.toLowerCase(),
+    notificationReference: "wmref_test-renewal",
+    nextAction: "sign_payment",
+    reason: null,
+  };
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_renewal",
+          serverId: "server_renewal",
+          planId: "agent",
+          checkoutPath: "/api/checkout/agent",
+        },
+        ownerToken: "renewal_owner_secret",
+      },
+      '{"taskId":"task_renewal"}',
+    );
+    await store.saveRenewalPolicy(
+      "server_renewal",
+      policy,
+      "renewal-wallet",
+      "30000000",
+    );
+    const fetchImpl = async (url, request = {}) => {
+      const path = new URL(url).pathname;
+      if (request.method === "GET" && path === "/api/servers/server_renewal") {
+        return jsonResponse(200, {
+          task: {
+            id: "task_renewal",
+            serverId: "server_renewal",
+            planId: "agent",
+            state: "ready",
+            termEndsAt: "2099-02-01T00:00:00.000Z",
+          },
+        });
+      }
+      if (
+        request.method === "GET" &&
+        path === "/api/servers/server_renewal/renewal-policy"
+      ) {
+        return jsonResponse(200, { configured: true, policy });
+      }
+      if (
+        request.method === "POST" &&
+        path === "/api/checkout/agent/renew"
+      ) {
+        return jsonResponse(
+          402,
+          { status: "payment_required", paymentAttemptId: "payment_renewal" },
+          { "payment-required": renewalHeader },
+        );
+      }
+      return jsonResponse(404, { error: { message: "Not found" } });
+    };
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "renewal",
+        "run",
+        "--all-due",
+        "--base-url",
+        baseUrl,
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, fetchImpl },
+    );
+    assert.equal(exitCode, 7, stderr.value());
+    const output = JSON.parse(stdout.value());
+    assert.equal(output.action, "batch");
+    assert.equal(output.results[0].action, "sign_payment");
+    assert.deepEqual(output.results[0].paymentWorkflow.authorize.argv.slice(0, 3), [
+      "x402api",
+      "payment",
+      "authorize",
+    ]);
+    assert.equal(
+      output.results[0].refillWorkflow.environment.X402API_NOTIFICATION_URL,
+      `${baseUrl}/api/notifications/x402api/refill`,
+    );
+    assert.equal(
+      output.results[0].refillWorkflow.argv.includes("wmref_test-renewal"),
+      true,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("refill deadlines remain valid after a server term has expired", () => {
+  const current = Date.parse("2026-08-23T12:00:00.000Z");
+  assert.equal(
+    refillRenewBy("2026-08-23T11:00:00.000Z", current),
+    "2026-08-23T12:30:00.000Z",
+  );
+  assert.equal(
+    refillRenewBy("2026-08-30T12:00:00.000Z", current),
+    "2026-08-30T12:00:00.000Z",
+  );
 });

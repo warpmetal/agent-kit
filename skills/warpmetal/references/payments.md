@@ -5,6 +5,7 @@
 - Trust boundary
 - Wallet setup and funding
 - Exact purchase workflow
+- Exact renewal and refill workflow
 - Retries and recovery
 
 ## Trust boundary
@@ -70,8 +71,10 @@ skill automatically.
    contract/mint or `paymentTerms.recipient`. Sponsored launch payments never
    ask the buyer to fund ETH or SOL. Recheck the balance after the transfer.
 7. If funding is short in an unattended run, use only a preconfigured refill
-   or escalation mechanism. Otherwise report `funding_required` and stop; do
-   not invent a human approval step or funding source.
+   mechanism returned by WarpMetal. For a configured renewal, set the returned
+   `refillWorkflow.environment`, invoke `refillWorkflow.argv` once, and stop
+   until funding arrives. Otherwise report `funding_required` and stop; do not
+   invent a human approval step or funding source.
 
 Treat the dedicated wallet's funded balance as spend authority available to
 the agent, bounded by any wallet-local maximum payment policy and task or
@@ -136,6 +139,17 @@ requirement, resource, extension set, buyer payment identifier, signature,
 expiry, sponsorship lifetime, file type, or permissions do not match the saved
 challenge. Keep `--payment-signature-file` only as a compatibility path for
 another external signer.
+
+## Exact renewal and refill workflow
+
+Renewal uses the same signer boundary and exact artifact checks as purchase,
+but the merchant body is `{"serverId":"..."}` and submission returns through
+`warpmetal renewal submit`. Read [renewals.md](renewals.md) for policy limits,
+scheduling, signed refill notification, and recovery states.
+
+Never use an initial-purchase artifact for renewal or a renewal artifact for a
+later term. The resource URL, body, challenge digest, gas reservation, and
+current `termEndsAt` generation are different.
 
 ## Retries and recovery
 

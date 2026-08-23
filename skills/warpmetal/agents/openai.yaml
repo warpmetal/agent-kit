@@ -1,4 +1,4 @@
 interface:
   display_name: "WarpMetal VPS"
-  short_description: "Purchase and manage WarpMetal compute safely"
-  default_prompt: "Use $warpmetal to purchase a VPS through the guarded x402 wallet handoff and manage isolated agent sandboxes safely."
+  short_description: "Purchase, renew, and manage WarpMetal compute"
+  default_prompt: "Use $warpmetal to purchase or renew a VPS with a dedicated SSH identity, bounded x402 payment policy, and safe lifecycle management."

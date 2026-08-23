@@ -4,10 +4,12 @@ The official command-line client and portable Agent Skill for WarpMetal.
 
 The CLI uses the public API at `https://api.warpmetal.com`, stores generated
 WarpMetal credentials in a user-private state file, and never reads or stores
-wallet private keys or SSH private-key contents. Version 0.4 adds a guarded
-x402api Agent Wallet handoff: WarpMetal writes the exact credential-free payment
-request, explains the next commands to an agent, validates the returned payment
-artifact, and submits it without absorbing wallet custody.
+wallet private keys or SSH private-key contents. Version 0.5 adds dedicated
+hostname-based VPS identities, bounded autonomous renewal, verified lifecycle
+email, and signed refill requests through the x402api Agent Wallet. WarpMetal
+writes the exact credential-free payment request, explains the next commands to
+an agent, validates the returned payment artifact, and submits it without
+absorbing wallet custody.
 
 ## Distribution
 
@@ -60,8 +62,17 @@ warpmetal order prepare \
   --plan agent \
   --hostname codex-workspace \
   --os '<exact name from warpmetal catalog>' \
-  --ssh-public-key-file ~/.ssh/id_ed25519.pub
+  --generate-ssh-key \
+  --json
 ```
+
+The generated key defaults to
+`${WARPMETAL_HOME:-~/.config/warpmetal}/ssh/warpmetal-codex-workspace`. A
+collision receives a random suffix; existing keys are never overwritten. Once
+checkout returns `serverId`, the CLI binds that ID to the identity so
+`warpmetal server login` and `warpmetal runtime install` can select it without
+an `--identity` flag. Use `--ssh-public-key-file` instead when supplying a
+user-managed public key.
 
 Pass `--json` for structured, secret-redacted output. Use
 `WARPMETAL_API_URL` for an alternate API origin and `WARPMETAL_HOME` for an
@@ -137,6 +148,48 @@ recipient, and never sends ETH or SOL for a sponsored payment. In an unattended
 run, use a preconfigured refill or escalation mechanism or stop with
 `funding_required`.
 
+## Autonomous renewal and refill
+
+Configure renewal only with explicit bounds. This example allows at most 12
+renewals, enforces a 30 USDC per-payment ceiling and a 360 USDC cumulative
+budget, and requests a verified notification recipient:
+
+```sh
+warpmetal renewal configure \
+  --server <serverId> \
+  --renew-before-days 3 \
+  --maximum-payment-atomic 30000000 \
+  --maximum-renewals 12 \
+  --maximum-total-spend-atomic 360000000 \
+  --allowed-network eip155:8453 \
+  --allowed-asset 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --wallet <dedicated-wallet> \
+  --email ops@example.com \
+  --json
+```
+
+The recipient must follow the one-time verification link before lifecycle or
+refill mail is sent. A recurring unattended agent can then run:
+
+```sh
+warpmetal renewal due --all --json
+warpmetal renewal run --all-due --json
+```
+
+Inside policy, the CLI returns the exact Agent Wallet authorization and submit
+argv. If balance is insufficient, run the returned `refillWorkflow.argv` with
+its `X402API_NOTIFICATION_URL` environment value. `x402api wallet
+notify-refill` signs an opaque subscription reference and wallet-produced
+balance fields; it cannot choose an email address. WarpMetal verifies the
+wallet signature and current on-chain balance before emailing the verified
+human the network, stablecoin, public wallet address, and required minimum
+top-up. The human may transfer more than that minimum; the renewal policy—not
+the refill target—remains the spending authority.
+
+The agent never sends a partial x402 payment. If no verified refill path
+exists, it reports `funding_required`. If a previous payment is pending or
+ambiguous, it reconciles the saved attempt and never signs a second payment.
+
 The x402api Agent Wallet is a separate, merchant-neutral executable. Install
 its matching `x402api-pay` skill with `x402api skill install --output <agent-skill-directory>/x402api-pay --json`.
 Do not use `x402api pay`, `payment submit`, or `payment reconcile` for WarpMetal:
@@ -180,7 +233,6 @@ compatible external signer.
 warpmetal runtime enable --server <serverId> --json
 warpmetal runtime install \
   --server <serverId> \
-  --identity ~/.ssh/warpmetal-owner \
   --ssh-user ubuntu \
   --confirm INSTALL \
   --wait \
@@ -202,7 +254,7 @@ cleanup, access-grant, and strict host-key connection workflow.
 
 ## Release status
 
-The initial development release is published at
+The package is published at
 `https://www.npmjs.com/package/warpmetal`. The source is publicly visible but
 remains `UNLICENSED`; choose an explicit license before describing the project
 as open source or inviting third-party reuse.

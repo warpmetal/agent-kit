@@ -1,5 +1,13 @@
-import { createHash } from "node:crypto";
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -90,6 +98,107 @@ async function requireMissing(path) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
+}
+
+async function isMissing(path) {
+  try {
+    await lstat(path);
+    return false;
+  } catch (error) {
+    if (error?.code === "ENOENT") return true;
+    throw error;
+  }
+}
+
+export function serverKeyName(hostname, requestedName) {
+  const normalizedHostname = String(hostname || "").trim().toLowerCase();
+  if (
+    !/^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(
+      normalizedHostname,
+    )
+  ) {
+    throw new CliError(
+      "--hostname must be a valid DNS label before generating an SSH identity.",
+      { exitCode: 2 },
+    );
+  }
+  let value = String(requestedName || normalizedHostname)
+    .trim()
+    .toLowerCase();
+  if (!value.startsWith("warpmetal-")) value = `warpmetal-${value}`;
+  if (!/^[a-z0-9][a-z0-9._-]{0,79}$/.test(value)) {
+    throw new CliError(
+      "The SSH key name must contain only lowercase letters, digits, dots, underscores, or hyphens.",
+      { exitCode: 2 },
+    );
+  }
+  return { hostname: normalizedHostname, keyName: value };
+}
+
+export async function generateServerKey(
+  directory,
+  hostname,
+  requestedName,
+  { spawn = spawnSync, random = randomBytes } = {},
+) {
+  const normalized = serverKeyName(hostname, requestedName);
+  const identityDirectory = resolve(directory);
+  await mkdir(identityDirectory, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") await chmod(identityDirectory, 0o700);
+
+  let keyName = normalized.keyName;
+  let privatePath = join(identityDirectory, keyName);
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const publicPath = `${privatePath}.pub`;
+    if ((await isMissing(privatePath)) && (await isMissing(publicPath))) break;
+    const suffix = random(2).toString("hex");
+    keyName = `${normalized.keyName.slice(0, 75)}-${suffix}`;
+    privatePath = join(identityDirectory, keyName);
+  }
+  const publicPath = `${privatePath}.pub`;
+  await requireMissing(privatePath);
+  await requireMissing(publicPath);
+  const result = spawn(
+    "ssh-keygen",
+    [
+      "-q",
+      "-t",
+      "ed25519",
+      "-N",
+      "",
+      "-C",
+      `warpmetal:${normalized.hostname}`,
+      "-f",
+      privatePath,
+    ],
+    { stdio: ["ignore", "ignore", "pipe"], shell: false },
+  );
+  if (result.error?.code === "ENOENT") {
+    throw new CliError(
+      "ssh-keygen is required to generate a WarpMetal server identity.",
+      { exitCode: 2 },
+    );
+  }
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new CliError("ssh-keygen could not generate the server identity.", {
+      exitCode: 4,
+    });
+  }
+  if (process.platform !== "win32") {
+    await chmod(privatePath, 0o600);
+    await chmod(publicPath, 0o644);
+  }
+  const publicKey = await readSshPublicKey(publicPath);
+  return {
+    keyName,
+    hostnameAtCreation: normalized.hostname,
+    privateKeyPath: privatePath,
+    publicKeyPath: publicPath,
+    keyType: "ed25519",
+    sshFingerprint: sshFingerprint(publicKey),
+    sshPublicKey: publicKey,
+  };
 }
 
 export function sshFingerprint(publicKey) {

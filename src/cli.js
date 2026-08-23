@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 
 import {
   booleanOption,
@@ -30,8 +30,11 @@ import {
 import {
   connectSandbox,
   generateSandboxKey,
+  generateServerKey,
   readSshPublicKey,
+  serverKeyName,
   signSshChallenge,
+  sshFingerprint,
 } from "./ssh.js";
 import { resolveStateDirectory, StateStore } from "./state.js";
 import { VERSION } from "./version.js";
@@ -70,23 +73,36 @@ Usage:
   warpmetal health [--json]
   warpmetal catalog [--plan <planId>] [--json]
   warpmetal order prepare --plan <planId> --hostname <name> --os <exact-name>
-    --ssh-public-key-file <path> [--runtime-file <path>] [--confirm TEMPORARY]
+    (--generate-ssh-key [--ssh-key-name <name>] | --ssh-public-key-file <path>)
+    [--runtime-file <path>] [--confirm TEMPORARY]
     [--email <address>] [--idempotency-key <key>]
   warpmetal order status --task <taskId> [--wait] [--timeout-seconds <n>]
   warpmetal checkout challenge --task <taskId> [--request-envelope-out <path>]
   warpmetal checkout submit --task <taskId>
     (--payment-artifact <path> | --payment-signature-file <path>)
     [--wait] [--timeout-seconds <n>]
-  warpmetal server login --server <serverId> --identity <private-key-path>
+  warpmetal renewal configure --server <serverId> --renew-before-days <n>
+    --maximum-payment-atomic <amount> (--maximum-renewals <n> | --renew-through <UTC>)
+    --allowed-network <CAIP-2> --allowed-asset <asset> --wallet <name>
+  warpmetal renewal status|prepare|submit|run ...
+  warpmetal renewal due (--server <serverId> | --all)
+  warpmetal notifications configure --server <serverId> --email <address>
+  warpmetal notifications status --server <serverId>
+  warpmetal identity generate --hostname <name> [--ssh-key-name <name>]
+  warpmetal identity list
+  warpmetal server identity --server <serverId>
+  warpmetal server identity attach --server <serverId> --identity <private-key-path>
+  warpmetal server login --server <serverId> [--identity <private-key-path>]
   warpmetal server get --server <serverId>
   warpmetal server power --server <serverId> --action <boot|reboot|shutdown>
     --confirm <same-action> [--wait] [--idempotency-key <key>]
   warpmetal server reload --server <serverId> --confirm ERASE --power-off-first
     [--acknowledge-agent-runtime-reset] [--hostname <name>] [--os <exact-name>]
-    [--ssh-public-key-file <path>] [--wait] [--idempotency-key <key>]
+    [--generate-ssh-key [--ssh-key-name <name>] | --ssh-public-key-file <path>]
+    [--wait] [--idempotency-key <key>]
   warpmetal operation get --operation <operationId> [--server <serverId>] [--wait]
   warpmetal runtime enable|get --server <serverId> [--wait]
-  warpmetal runtime install --server <serverId> --identity <owner-key> --ssh-user <user>
+  warpmetal runtime install --server <serverId> [--identity <owner-key>] --ssh-user <user>
     --confirm INSTALL [--wait]
   warpmetal sandbox create --server <serverId> --name <name> --size <size>
     [--lifetime temporary] [--expires-in-seconds <n>] [--confirm TEMPORARY] [--wait]
@@ -429,13 +445,88 @@ async function handleCatalog(client, options, { json, stdout }) {
   return 0;
 }
 
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function identityId() {
+  return `idn_${randomUUID()}`;
+}
+
+async function generatedIdentity(store, hostname, options, context) {
+  const generated = await generateServerKey(
+    join(store.directory, "ssh"),
+    hostname,
+    stringOption(options, "ssh-key-name"),
+    { spawn: context.spawnSyncImpl },
+  );
+  const identity = {
+    identityId: identityId(),
+    ...generated,
+    generated: true,
+  };
+  delete identity.sshPublicKey;
+  await store.saveIdentity(identity);
+  return { identity, sshPublicKey: generated.sshPublicKey };
+}
+
+async function existingIdentity(store, hostname, publicKeyFile, requestedName) {
+  const publicKeyPath = resolve(publicKeyFile);
+  const sshPublicKey = await readSshPublicKey(publicKeyPath);
+  const candidatePrivatePath = publicKeyPath.endsWith(".pub")
+    ? publicKeyPath.slice(0, -4)
+    : undefined;
+  const keyName = serverKeyName(
+    hostname,
+    requestedName || basename(candidatePrivatePath || publicKeyPath),
+  ).keyName;
+  const identity = {
+    identityId: identityId(),
+    keyName,
+    hostnameAtCreation: hostname.toLowerCase(),
+    privateKeyPath:
+      candidatePrivatePath && (await pathExists(candidatePrivatePath))
+        ? candidatePrivatePath
+        : undefined,
+    publicKeyPath,
+    keyType: sshPublicKey.split(/\s+/)[0],
+    sshFingerprint: sshFingerprint(sshPublicKey),
+    generated: false,
+  };
+  await store.saveIdentity(identity);
+  return { identity, sshPublicKey };
+}
+
+async function resolveServerIdentity(store, serverId, explicit) {
+  if (explicit) return resolve(explicit);
+  const identity = await store.identityForServer(serverId);
+  if (!identity?.privateKeyPath) {
+    throw new CliError(
+      `No private SSH identity is mapped to ${serverId}. Use --identity once or run warpmetal server identity attach.`,
+      { exitCode: 4, details: { code: "identity_required", serverId } },
+    );
+  }
+  return identity.privateKeyPath;
+}
+
 async function handlePrepareOrder(client, store, options, context) {
   const planId = stringOption(options, "plan", { required: true });
   const hostname = stringOption(options, "hostname", { required: true });
   const osName = stringOption(options, "os", { required: true });
-  const publicKeyFile = stringOption(options, "ssh-public-key-file", {
-    required: true,
-  });
+  const publicKeyFile = stringOption(options, "ssh-public-key-file");
+  const generateSshKey = booleanOption(options, "generate-ssh-key");
+  if (Boolean(publicKeyFile) === generateSshKey) {
+    throw new CliError(
+      "Use exactly one of --generate-ssh-key or --ssh-public-key-file.",
+      { exitCode: 2 },
+    );
+  }
   const email = stringOption(options, "email");
   const runtimeFile = stringOption(options, "runtime-file");
   const sandboxes = runtimeFile
@@ -470,15 +561,32 @@ async function handlePrepareOrder(client, store, options, context) {
   }
   if (sandboxes) validateRuntimeCatalog(product, osName, sandboxes);
 
-  const sshPublicKey = await readSshPublicKey(publicKeyFile);
-  const request = { planId, hostname, osName, sshPublicKey };
+  const selected = generateSshKey
+    ? await generatedIdentity(store, hostname, options, context)
+    : await existingIdentity(
+        store,
+        hostname,
+        publicKeyFile,
+        stringOption(options, "ssh-key-name"),
+      );
+  const request = {
+    planId,
+    hostname,
+    osName,
+    sshPublicKey: selected.sshPublicKey,
+    sshKeyLabel: selected.identity.keyName,
+  };
   if (email) request.email = email;
   if (sandboxes) request.agentRuntime = { sandboxes };
   const key =
     stringOption(options, "idempotency-key") || idempotencyKey("order");
   const response = await client.prepareOrder(request, key);
   const checkoutBody = JSON.stringify({ taskId: response.data.task.id });
-  await store.savePreparedOrder(response.data, checkoutBody);
+  await store.savePreparedOrder(
+    response.data,
+    checkoutBody,
+    selected.identity.identityId,
+  );
   const safe = safePreparedOrder(response.data, store.path);
   if (sandboxes) {
     safe.agentRuntimeIntent = {
@@ -650,6 +758,518 @@ async function handleCheckoutSubmit(client, store, options, context) {
   }
 }
 
+function atomicOption(options, name, { required = false } = {}) {
+  const value = stringOption(options, name, { required });
+  if (value === undefined) return undefined;
+  if (!/^(?:0|[1-9][0-9]{0,77})$/.test(value) || value === "0") {
+    throw new CliError(`--${name} must be a positive canonical atomic amount.`, {
+      exitCode: 2,
+    });
+  }
+  return value;
+}
+
+export function refillRenewBy(termEndsAt, currentTime = Date.now()) {
+  const minimum = currentTime + 30 * 60 * 1000;
+  const parsed = Date.parse(termEndsAt || "");
+  return new Date(Number.isFinite(parsed) && parsed > minimum ? parsed : minimum).toISOString();
+}
+
+async function handleRenewalConfigure(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const wallet = stringOption(options, "wallet", { required: true });
+  const maximumRenewals = integerOption(options, "maximum-renewals");
+  const renewThrough = stringOption(options, "renew-through");
+  if (Boolean(maximumRenewals) === Boolean(renewThrough)) {
+    throw new CliError(
+      "Use exactly one of --maximum-renewals or --renew-through.",
+      { exitCode: 2 },
+    );
+  }
+  const maximumPaymentAtomic = atomicOption(
+    options,
+    "maximum-payment-atomic",
+    { required: true },
+  );
+  const maximumTotalSpendAtomic = atomicOption(
+    options,
+    "maximum-total-spend-atomic",
+  );
+  const refillTargetAtomic =
+    atomicOption(options, "refill-target-atomic") || maximumPaymentAtomic;
+  if (BigInt(refillTargetAtomic) > BigInt(maximumPaymentAtomic)) {
+    throw new CliError(
+      "--refill-target-atomic cannot exceed --maximum-payment-atomic.",
+      { exitCode: 2 },
+    );
+  }
+  const body = {
+    enabled: !booleanOption(options, "disabled"),
+    renewBeforeDays: integerOption(options, "renew-before-days", 3),
+    maximumPaymentAtomic,
+    maximumRenewals,
+    renewThrough,
+    maximumTotalSpendAtomic,
+    allowedNetwork: stringOption(options, "allowed-network", {
+      required: true,
+    }),
+    allowedAsset: stringOption(options, "allowed-asset", { required: true }),
+  };
+  for (const [key, value] of Object.entries(body)) {
+    if (value === undefined) delete body[key];
+  }
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.putRenewalPolicy(serverId, body, token);
+  await store.saveRenewalPolicy(
+    serverId,
+    result.data.policy,
+    wallet,
+    refillTargetAtomic,
+  );
+  const email = stringOption(options, "email");
+  let notifications;
+  if (email) {
+    notifications = (
+      await client.putNotifications(serverId, { email }, token)
+    ).data;
+  }
+  const output = { ...result.data, wallet, refillTargetAtomic, notifications };
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    `Configured bounded renewal for ${serverId} with wallet ${wallet}.${email ? " Check the email verification link." : ""}`,
+  );
+  return 0;
+}
+
+async function handleRenewalStatus(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.getRenewalPolicy(serverId, token);
+  const local = await store.renewal(serverId);
+  const output = { ...result.data, local: local ? { wallet: local.wallet, refillTargetAtomic: local.refillTargetAtomic } : null };
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    result.data.configured
+      ? `${serverId}: ${result.data.policy.nextAction}${result.data.policy.reason ? ` (${result.data.policy.reason})` : ""}`
+      : `${serverId}: no renewal policy configured`,
+  );
+  return result.data.policy?.nextAction === "approval_required" ? 6 : 0;
+}
+
+async function attachRenewalPaymentWorkflow(
+  client,
+  store,
+  serverId,
+  server,
+  renewal,
+  response,
+  requestedEnvelopePath,
+) {
+  const bodyText = JSON.stringify({ serverId });
+  const checkoutPath = `/api/checkout/${server.planId}/renew`;
+  const safe = challengeResult(serverId, bodyText, response);
+  if (!safe.paymentRequired) return safe;
+  const request = createPaymentRequestEnvelope({
+    baseUrl: client.baseUrl,
+    checkoutPath,
+    checkoutBody: bodyText,
+    paymentRequired: safe.paymentRequired,
+    merchantReference: `renew:${serverId}:${server.termEndsAt || "unset"}`,
+  });
+  const matchingTerms = request.terms.filter(
+    (term) =>
+      term.agentWalletSupported &&
+      term.network === renewal.policy.allowedNetwork &&
+      (term.asset.startsWith("0x")
+        ? term.asset.toLowerCase() === renewal.policy.allowedAsset.toLowerCase()
+        : term.asset === renewal.policy.allowedAsset),
+  );
+  if (matchingTerms.length !== 1) {
+    throw new CliError(
+      "The renewal challenge does not contain exactly one payment rail allowed by policy.",
+      { exitCode: 6 },
+    );
+  }
+  const term = matchingTerms[0];
+  if (BigInt(term.amountAtomic) > BigInt(renewal.policy.maximumPaymentAtomic)) {
+    throw new CliError("The renewal price is above the autonomous policy ceiling.", {
+      exitCode: 6,
+      details: { code: "renewal_price_above_limit", term },
+    });
+  }
+  if (
+    renewal.policy.maximumTotalSpendAtomic &&
+    BigInt(renewal.policy.totalSpendAtomic) + BigInt(term.amountAtomic) >
+      BigInt(renewal.policy.maximumTotalSpendAtomic)
+  ) {
+    throw new CliError("The renewal would exceed the cumulative policy budget.", {
+      exitCode: 6,
+      details: { code: "renewal_budget_exhausted", term },
+    });
+  }
+  const defaults = defaultPaymentPaths(
+    store.directory,
+    `renew-${serverId}`,
+    request.challengeDigest,
+  );
+  const requestEnvelopePath = await writePaymentRequestEnvelope(
+    requestedEnvelopePath || defaults.requestEnvelopePath,
+    request.envelope,
+  );
+  const workflow = paymentWorkflow({
+    taskId: server.id,
+    serverId,
+    kind: "renewal",
+    requestEnvelopePath,
+    paymentArtifactPath: defaults.paymentArtifactPath,
+  });
+  const refillTarget =
+    renewal.refillTargetAtomic &&
+    BigInt(renewal.refillTargetAtomic) >= BigInt(term.amountAtomic)
+      ? renewal.refillTargetAtomic
+      : term.amountAtomic;
+  const refillWorkflow = {
+    environment: {
+      X402API_NOTIFICATION_URL: `${client.baseUrl}/api/notifications/x402api/refill`,
+    },
+    argv: [
+      "x402api",
+      "wallet",
+      "notify-refill",
+      "--wallet",
+      renewal.wallet,
+      "--subscription-reference",
+      renewal.policy.notificationReference,
+      "--renew-by",
+      refillRenewBy(server.termEndsAt),
+      "--target-balance-atomic",
+      refillTarget,
+      "--reason",
+      "renewal",
+      "--json",
+    ],
+  };
+  Object.assign(safe, {
+    serverId,
+    paymentTerms: request.terms,
+    selectedPolicyTerm: term,
+    paymentRequestDigest: request.requestDigest,
+    paymentChallengeDigest: request.challengeDigest,
+    paymentWorkflow: workflow,
+    refillWorkflow,
+  });
+  await store.saveRenewalChallenge(serverId, {
+    checkoutPath,
+    checkoutBody: bodyText,
+    termEndsAt: server.termEndsAt,
+    paymentRequired: safe.paymentRequired,
+    paymentAttemptId: safe.paymentAttemptId,
+    paymentRequestDigest: safe.paymentRequestDigest,
+    paymentChallengeDigest: safe.paymentChallengeDigest,
+    paymentRequestEnvelopePath: requestEnvelopePath,
+    paymentArtifactPath: defaults.paymentArtifactPath,
+    selectedPolicyTerm: term,
+  });
+  return safe;
+}
+
+function renewalActionExitCode(action) {
+  if (action === "sign_payment") return 7;
+  if (action === "reconcile_pending") return 8;
+  if (["policy_required", "approval_required", "manual_review"].includes(action)) {
+    return 6;
+  }
+  return 0;
+}
+
+async function prepareRenewal(client, store, serverId, options, context) {
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const [serverResult, policyResult] = await Promise.all([
+    client.getServer(serverId, token),
+    client.getRenewalPolicy(serverId, token),
+  ]);
+  if (!policyResult.data.configured) {
+    return {
+      action: "policy_required",
+      serverId,
+      reason: "renewal_policy_required",
+      task: serverResult.data.task,
+    };
+  }
+  const policy = policyResult.data.policy;
+  if (policy.nextAction !== "sign_payment") {
+    return {
+      action: policy.nextAction,
+      serverId,
+      reason: policy.reason,
+      policy,
+      task: serverResult.data.task,
+    };
+  }
+  const local = await store.renewal(serverId);
+  if (!local?.wallet) {
+    return {
+      action: "approval_required",
+      serverId,
+      reason: "wallet_binding_required",
+      policy,
+      task: serverResult.data.task,
+    };
+  }
+  local.policy = policy;
+  const bodyText = JSON.stringify({ serverId });
+  const response = await client.renewalCheckout(serverResult.data.task.planId, {
+    bodyText,
+    token,
+  });
+  const safe = await attachRenewalPaymentWorkflow(
+    client,
+    store,
+    serverId,
+    serverResult.data.task,
+    local,
+    response,
+    stringOption(options, "request-envelope-out"),
+  );
+  safe.action =
+    response.status === 402
+      ? "sign_payment"
+      : response.status === 409
+        ? "manual_review"
+        : response.status === 202
+          ? "reconcile_pending"
+          : safe.status === "renewed"
+            ? "renewed"
+            : "reconcile_pending";
+  safe.policy = policy;
+  safe.task = response.data?.task || serverResult.data.task;
+  return safe;
+}
+
+async function handleRenewalPrepare(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const safe = await prepareRenewal(client, store, serverId, options, context);
+  const instructions = safe.paymentWorkflow
+    ? `\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nIf the wallet is short of funds, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}\nSubmit: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
+    : "";
+  emit(
+    context.stdout,
+    safe,
+    context.json,
+    safe.action === "sign_payment"
+      ? `Renewal payment authorization is required for ${serverId}.${instructions}`
+      : `${serverId}: ${safe.action}${safe.reason ? ` (${safe.reason})` : ""}`,
+  );
+  return renewalActionExitCode(safe.action);
+}
+
+async function handleRenewalRun(client, store, options, context) {
+  const explicit = stringOption(options, "server");
+  const allDue = booleanOption(options, "all-due");
+  if (Boolean(explicit) === allDue) {
+    throw new CliError("Use exactly one of --server or --all-due.", { exitCode: 2 });
+  }
+  if (allDue && stringOption(options, "request-envelope-out")) {
+    throw new CliError("--request-envelope-out cannot be shared by --all-due.", {
+      exitCode: 2,
+    });
+  }
+  if (explicit) return handleRenewalPrepare(client, store, options, context);
+
+  const serverIds = (await store.summary()).renewals.map(
+    (renewal) => renewal.serverId,
+  );
+  const results = [];
+  for (const serverId of serverIds) {
+    try {
+      results.push(await prepareRenewal(client, store, serverId, options, context));
+    } catch (error) {
+      results.push({
+        action: "approval_required",
+        serverId,
+        reason: "renewal_check_failed",
+        error: toErrorMessage(error),
+      });
+    }
+  }
+  const output = { action: "batch", results };
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    results.length
+      ? results.map((result) => `${result.serverId}: ${result.action}`).join("\n")
+      : "No local renewal policies are configured.",
+  );
+  const codes = results.map((result) => renewalActionExitCode(result.action));
+  return codes.includes(6) ? 6 : codes.includes(8) ? 8 : codes.includes(7) ? 7 : 0;
+}
+
+async function handleRenewalSubmit(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const artifactFile = stringOption(options, "payment-artifact", {
+    required: true,
+  });
+  const renewal = await store.renewal(serverId);
+  if (
+    !renewal?.checkoutPath ||
+    !renewal?.checkoutBody ||
+    !renewal?.paymentRequired ||
+    !renewal?.policy
+  ) {
+    throw new CliError(
+      `No exact saved renewal challenge exists for ${serverId}. Run renewal prepare first.`,
+      { exitCode: 2 },
+    );
+  }
+  const expected = createPaymentRequestEnvelope({
+    baseUrl: client.baseUrl,
+    checkoutPath: renewal.checkoutPath,
+    checkoutBody: renewal.checkoutBody,
+    paymentRequired: renewal.paymentRequired,
+    merchantReference: `renew:${serverId}:${renewal.termEndsAt || "unset"}`,
+  });
+  const walletPayment = await readPaymentArtifact(artifactFile, expected);
+  const selected = expected.terms.find(
+    (term) => term.requirementDigest === walletPayment.selectedRequirementDigest,
+  );
+  const policy = renewal.policy;
+  const normalizedAsset = selected?.asset?.startsWith("0x")
+    ? selected.asset.toLowerCase()
+    : selected?.asset;
+  if (
+    !selected ||
+    selected.network !== policy.allowedNetwork ||
+    normalizedAsset !==
+      (policy.allowedAsset.startsWith("0x")
+        ? policy.allowedAsset.toLowerCase()
+        : policy.allowedAsset) ||
+    BigInt(selected.amountAtomic) > BigInt(policy.maximumPaymentAtomic)
+  ) {
+    throw new CliError(
+      "The payment artifact selected a term outside the autonomous renewal policy.",
+      { exitCode: 6 },
+    );
+  }
+  await store.saveRenewalPaymentAttempt(serverId, walletPayment);
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const deadline = timeoutDeadline(
+    integerOption(options, "timeout-seconds", 900),
+  );
+  while (true) {
+    const response = await client.renewalCheckout(
+      (await client.getServer(serverId, token)).data.task.planId,
+      {
+        bodyText: renewal.checkoutBody,
+        token,
+        paymentSignature: walletPayment.paymentSignature,
+      },
+    );
+    const retryable =
+      response.status === 202 &&
+      ["payment_pending", "payment_finalizing"].includes(response.data?.status);
+    if (booleanOption(options, "wait") && retryable) {
+      ensureBeforeDeadline(deadline, `Renewal ${serverId}`);
+      await delay(suggestedDelay(response));
+      continue;
+    }
+    const output = {
+      status: response.data?.status,
+      serverId,
+      task: response.data?.task,
+      paymentAttemptId:
+        response.data?.paymentAttemptId ||
+        response.headers["x-warpmetal-payment-attempt"],
+      walletPayment: {
+        attemptId: walletPayment.attemptId,
+        wallet: walletPayment.wallet,
+        payerAddress: walletPayment.payerAddress,
+        artifactPath: walletPayment.path,
+      },
+    };
+    emit(
+      context.stdout,
+      output,
+      context.json,
+      `Renewal status for ${serverId}: ${output.status}`,
+    );
+    if (response.status === 409) return 6;
+    if (response.status === 402) return 7;
+    if (retryable) return 8;
+    return 0;
+  }
+}
+
+async function handleRenewalDue(client, store, options, context) {
+  const explicit = stringOption(options, "server");
+  const all = booleanOption(options, "all");
+  if (Boolean(explicit) === all) {
+    throw new CliError("Use exactly one of --server or --all.", { exitCode: 2 });
+  }
+  const serverIds = explicit
+    ? [explicit]
+    : (await store.summary()).renewals.map((renewal) => renewal.serverId);
+  const results = [];
+  for (const serverId of serverIds) {
+    try {
+      const token = await requireServerToken(store, serverId, options, context.env);
+      const result = await client.getRenewalPolicy(serverId, token);
+      results.push({ serverId, ...result.data });
+    } catch (error) {
+      results.push({ serverId, error: toErrorMessage(error) });
+    }
+  }
+  const due = results.filter(
+    (result) =>
+      result.policy?.nextAction && result.policy.nextAction !== "not_due",
+  );
+  emit(
+    context.stdout,
+    { due, checked: results },
+    context.json,
+    due.length
+      ? due.map((result) => `${result.serverId}: ${result.policy.nextAction}`).join("\n")
+      : "No locally configured server is due for renewal.",
+  );
+  return due.length ? 8 : 0;
+}
+
+async function handleNotificationsConfigure(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const email = stringOption(options, "email", { required: true });
+  const eventValue = stringOption(options, "events");
+  const body = { email };
+  if (eventValue) body.events = eventValue.split(",").map((value) => value.trim());
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.putNotifications(serverId, body, token);
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    `Verification email queued for ${result.data.subscription.email}.`,
+  );
+  return 0;
+}
+
+async function handleNotificationsStatus(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.getNotifications(serverId, token);
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    result.data.configured
+      ? `${serverId}: notifications ${result.data.subscription.verified ? "verified" : "awaiting verification"}`
+      : `${serverId}: notifications are not configured`,
+  );
+  return 0;
+}
+
 async function loginServer(client, store, serverId, identity) {
   const challenge = (await client.issueSshChallenge(serverId)).data;
   const signature = await signSshChallenge(challenge.payload, identity);
@@ -664,9 +1284,102 @@ async function loginServer(client, store, serverId, identity) {
   return { challenge, token };
 }
 
+async function handleIdentityGenerate(store, options, context) {
+  const hostname = stringOption(options, "hostname", { required: true });
+  const selected = await generatedIdentity(store, hostname, options, context);
+  emit(
+    context.stdout,
+    selected.identity,
+    context.json,
+    `Generated ${selected.identity.keyName} at ${selected.identity.privateKeyPath}; fingerprint ${selected.identity.sshFingerprint}.`,
+  );
+  return 0;
+}
+
+async function handleIdentityList(store, context) {
+  const identities = (await store.summary()).identities;
+  emit(
+    context.stdout,
+    { identities },
+    context.json,
+    identities.length
+      ? identities
+          .map(
+            (identity) =>
+              `${identity.keyName}: ${identity.serverId || "unbound"} (${identity.sshFingerprint})`,
+          )
+          .join("\n")
+      : "No WarpMetal SSH identities are stored.",
+  );
+  return 0;
+}
+
+async function handleServerIdentity(store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const identity = await store.identityForServer(serverId);
+  if (!identity) {
+    throw new CliError(`No SSH identity is mapped to ${serverId}.`, {
+      exitCode: 4,
+      details: { code: "identity_required", serverId },
+    });
+  }
+  emit(
+    context.stdout,
+    { identity },
+    context.json,
+    `${serverId} uses ${identity.keyName} (${identity.sshFingerprint}) at ${identity.privateKeyPath || "private key unavailable"}.`,
+  );
+  return 0;
+}
+
+async function handleServerIdentityAttach(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const privateKeyPath = resolve(
+    stringOption(options, "identity", { required: true }),
+  );
+  const publicKeyPath = `${privateKeyPath}.pub`;
+  const publicKey = await readSshPublicKey(publicKeyPath);
+  const fingerprint = sshFingerprint(publicKey);
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const server = (await client.getServer(serverId, token)).data?.task;
+  if (!server || server.sshFingerprint !== fingerprint) {
+    throw new CliError(
+      "The local public key fingerprint does not match the server owner key.",
+      { exitCode: 4 },
+    );
+  }
+  const keyName = serverKeyName(
+    server.hostname,
+    stringOption(options, "ssh-key-name") || basename(privateKeyPath),
+  ).keyName;
+  const identity = {
+    identityId: identityId(),
+    keyName,
+    hostnameAtCreation: server.hostname,
+    privateKeyPath,
+    publicKeyPath,
+    keyType: publicKey.split(/\s+/)[0],
+    sshFingerprint: fingerprint,
+    generated: false,
+  };
+  await store.saveIdentity(identity);
+  await store.bindIdentity(identity.identityId, server.taskId || server.id, serverId);
+  emit(
+    context.stdout,
+    { identity: await store.identity(identity.identityId) },
+    context.json,
+    `Mapped ${keyName} to ${serverId}.`,
+  );
+  return 0;
+}
+
 async function handleServerLogin(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
-  const identity = stringOption(options, "identity", { required: true });
+  const identity = await resolveServerIdentity(
+    store,
+    serverId,
+    stringOption(options, "identity"),
+  );
   const { challenge, token } = await loginServer(
     client,
     store,
@@ -741,8 +1454,16 @@ async function handleServerPower(client, store, options, context) {
   return result.data.operation.state === "manual_review" ? 6 : 0;
 }
 
-async function applyReloadResult(store, serverId, operation) {
+async function applyReloadResult(
+  store,
+  serverId,
+  operation,
+  pendingIdentityId,
+) {
   if (operation?.state !== "succeeded") return;
+  if (pendingIdentityId) {
+    await store.bindIdentity(pendingIdentityId, undefined, serverId);
+  }
   await store.invalidateServerAccess(serverId);
   if (operation.result?.reloadImpact?.agentRuntimeAffected) {
     await store.saveRuntime(serverId, {
@@ -788,9 +1509,37 @@ async function handleServerReload(client, store, options, context) {
   const hostname = stringOption(options, "hostname");
   const osName = stringOption(options, "os");
   const publicKeyFile = stringOption(options, "ssh-public-key-file");
+  const generateSshKey = booleanOption(options, "generate-ssh-key");
+  if (publicKeyFile && generateSshKey) {
+    throw new CliError(
+      "Use at most one of --generate-ssh-key or --ssh-public-key-file during reload.",
+      { exitCode: 2 },
+    );
+  }
   if (hostname) body.hostname = hostname;
   if (osName) body.osName = osName;
-  if (publicKeyFile) body.sshPublicKey = await readSshPublicKey(publicKeyFile);
+  let replacementIdentity;
+  if (generateSshKey) {
+    const selected = await generatedIdentity(
+      store,
+      hostname || server.hostname,
+      options,
+      context,
+    );
+    replacementIdentity = selected.identity;
+    body.sshPublicKey = selected.sshPublicKey;
+    body.sshKeyLabel = replacementIdentity.keyName;
+  } else if (publicKeyFile) {
+    const selected = await existingIdentity(
+      store,
+      hostname || server.hostname,
+      publicKeyFile,
+      stringOption(options, "ssh-key-name"),
+    );
+    replacementIdentity = selected.identity;
+    body.sshPublicKey = selected.sshPublicKey;
+    body.sshKeyLabel = replacementIdentity.keyName;
+  }
 
   const key =
     stringOption(options, "idempotency-key") || idempotencyKey("reload");
@@ -799,7 +1548,9 @@ async function handleServerReload(client, store, options, context) {
   if (!operationId) {
     throw new CliError("WarpMetal did not return a reload operation ID.");
   }
-  await store.saveOperation(operationId, serverId, "reload");
+  await store.saveOperation(operationId, serverId, "reload", {
+    pendingIdentityId: replacementIdentity?.identityId,
+  });
   if (booleanOption(options, "wait")) {
     result = await pollOperation(
       client,
@@ -810,7 +1561,12 @@ async function handleServerReload(client, store, options, context) {
   }
 
   const operation = result.data?.operation;
-  await applyReloadResult(store, serverId, operation);
+  await applyReloadResult(
+    store,
+    serverId,
+    operation,
+    replacementIdentity?.identityId,
+  );
   emit(
     context.stdout,
     result.data,
@@ -853,7 +1609,12 @@ async function handleOperationGet(client, store, options, context) {
       )
     : await client.getOperation(operationId, token);
   if (saved?.kind === "reload") {
-    await applyReloadResult(store, serverId, result.data?.operation);
+    await applyReloadResult(
+      store,
+      serverId,
+      result.data?.operation,
+      saved.pendingIdentityId,
+    );
   }
   emit(
     context.stdout,
@@ -904,7 +1665,11 @@ async function handleRuntimeGet(client, store, options, context) {
 
 async function handleRuntimeInstall(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
-  const identity = stringOption(options, "identity", { required: true });
+  const identity = await resolveServerIdentity(
+    store,
+    serverId,
+    stringOption(options, "identity"),
+  );
   const sshUser = stringOption(options, "ssh-user", { required: true });
   if (stringOption(options, "confirm", { required: true }) !== "INSTALL") {
     throw new CliError(
@@ -1487,6 +2252,8 @@ async function dispatch(positionals, options, passthrough, context) {
         "hostname",
         "os",
         "ssh-public-key-file",
+        "generate-ssh-key",
+        "ssh-key-name",
         "email",
         "runtime-file",
         "confirm",
@@ -1521,6 +2288,104 @@ async function dispatch(positionals, options, passthrough, context) {
         "timeout-seconds",
       ]);
       return handleCheckoutSubmit(client, store, options, context);
+    case "identity generate":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "hostname",
+        "ssh-key-name",
+      ]);
+      return handleIdentityGenerate(store, options, context);
+    case "identity list":
+      rejectUnknownOptions(options, COMMON_OPTIONS);
+      return handleIdentityList(store, context);
+    case "server identity":
+      rejectUnknownOptions(options, [...COMMON_OPTIONS, "server"]);
+      return handleServerIdentity(store, options, context);
+    case "server identity attach":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "identity",
+        "ssh-key-name",
+        "token-file",
+      ]);
+      return handleServerIdentityAttach(client, store, options, context);
+    case "renewal configure":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "wallet",
+        "renew-before-days",
+        "maximum-payment-atomic",
+        "maximum-renewals",
+        "renew-through",
+        "maximum-total-spend-atomic",
+        "allowed-network",
+        "allowed-asset",
+        "refill-target-atomic",
+        "email",
+        "disabled",
+      ]);
+      return handleRenewalConfigure(client, store, options, context);
+    case "renewal status":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+      ]);
+      return handleRenewalStatus(client, store, options, context);
+    case "renewal due":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "all",
+        "token-file",
+      ]);
+      return handleRenewalDue(client, store, options, context);
+    case "renewal prepare":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "request-envelope-out",
+      ]);
+      return handleRenewalPrepare(client, store, options, context);
+    case "renewal submit":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "payment-artifact",
+        "wait",
+        "timeout-seconds",
+      ]);
+      return handleRenewalSubmit(client, store, options, context);
+    case "renewal run":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "all-due",
+        "token-file",
+        "request-envelope-out",
+      ]);
+      return handleRenewalRun(client, store, options, context);
+    case "notifications configure":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "email",
+        "events",
+      ]);
+      return handleNotificationsConfigure(client, store, options, context);
+    case "notifications status":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+      ]);
+      return handleNotificationsStatus(client, store, options, context);
     case "server login":
       rejectUnknownOptions(options, [...COMMON_OPTIONS, "server", "identity"]);
       return handleServerLogin(client, store, options, context);
@@ -1554,6 +2419,8 @@ async function dispatch(positionals, options, passthrough, context) {
         "hostname",
         "os",
         "ssh-public-key-file",
+        "generate-ssh-key",
+        "ssh-key-name",
         "idempotency-key",
         "wait",
         "timeout-seconds",
@@ -1728,7 +2595,7 @@ async function dispatch(positionals, options, passthrough, context) {
         context.stdout,
         summary,
         context.json,
-        `State: ${summary.stateFile}\nOrders: ${summary.orders.length}\nServers: ${summary.servers.length}\nOperations: ${summary.operations.length}\nRuntimes: ${summary.runtimes.length}\nSandboxes: ${summary.sandboxes.length}\nAccess grants: ${summary.accessGrants.length}`,
+        `State: ${summary.stateFile}\nOrders: ${summary.orders.length}\nServers: ${summary.servers.length}\nSSH identities: ${summary.identities.length}\nRenewal policies: ${summary.renewals.length}\nOperations: ${summary.operations.length}\nRuntimes: ${summary.runtimes.length}\nSandboxes: ${summary.sandboxes.length}\nAccess grants: ${summary.accessGrants.length}`,
       );
       return 0;
     }
