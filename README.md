@@ -109,9 +109,25 @@ warpmetal checkout submit \
 Check the payer wallet address and balance with:
 
 ```sh
+x402api wallet show --wallet <wallet-name> --json
 x402api wallet address --wallet <wallet-name> --json
 x402api wallet balance --wallet <wallet-name> --json
 ```
+
+For a new dedicated wallet, configure the enforceable local per-payment
+ceiling when it is created:
+
+```sh
+x402api wallet create --name <wallet-name> \
+  --network <exact-challenge-network> \
+  --maximum-payment-atomic <per-payment-policy-cap> --json
+```
+
+Require `maximumPaymentAtomic` to cover the live charge without exceeding the
+task or operator limit. Among valid sponsored terms, honor an explicit network
+or asset preference, otherwise prefer an already funded compatible wallet,
+then the first compatible term in live challenge order. Never switch terms
+after authorization.
 
 If funding is short in an interactive conversation, tell the human the exact
 top-up in normal and atomic units, the network, stablecoin and contract/mint,
