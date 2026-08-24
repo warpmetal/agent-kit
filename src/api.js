@@ -128,19 +128,19 @@ export class WarpMetalClient {
   }
 
   health() {
-    return this.request("GET", "/api/health");
+    return this.request("GET", "/health");
   }
 
   catalog() {
-    return this.request("GET", "/api/catalog");
+    return this.request("GET", "/catalog");
   }
 
   prepareOrder(body, idempotencyKey) {
-    return this.request("POST", "/api/orders", { body, idempotencyKey });
+    return this.request("POST", "/orders", { body, idempotencyKey });
   }
 
   getTask(taskId, token) {
-    return this.request("GET", `/api/tasks/${encodeURIComponent(taskId)}`, {
+    return this.request("GET", `/tasks/${encodeURIComponent(taskId)}`, {
       token,
     });
   }
@@ -157,7 +157,7 @@ export class WarpMetalClient {
   issueSshChallenge(serverId) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/auth/challenges`,
+      `/servers/${encodeURIComponent(serverId)}/auth/challenges`,
       { body: {} },
     );
   }
@@ -165,13 +165,13 @@ export class WarpMetalClient {
   exchangeSshChallenge(serverId, challengeId, signature) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/auth/tokens`,
+      `/servers/${encodeURIComponent(serverId)}/auth/tokens`,
       { body: { challengeId, signature } },
     );
   }
 
   getServer(serverId, token) {
-    return this.request("GET", `/api/servers/${encodeURIComponent(serverId)}`, {
+    return this.request("GET", `/servers/${encodeURIComponent(serverId)}`, {
       token,
     });
   }
@@ -179,7 +179,7 @@ export class WarpMetalClient {
   getRenewalPolicy(serverId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      `/servers/${encodeURIComponent(serverId)}/renewal-policy`,
       { token },
     );
   }
@@ -187,7 +187,7 @@ export class WarpMetalClient {
   putRenewalPolicy(serverId, body, token) {
     return this.request(
       "PUT",
-      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      `/servers/${encodeURIComponent(serverId)}/renewal-policy`,
       { body, token },
     );
   }
@@ -195,7 +195,7 @@ export class WarpMetalClient {
   deleteRenewalPolicy(serverId, token) {
     return this.request(
       "DELETE",
-      `/api/servers/${encodeURIComponent(serverId)}/renewal-policy`,
+      `/servers/${encodeURIComponent(serverId)}/renewal-policy`,
       { token },
     );
   }
@@ -203,7 +203,7 @@ export class WarpMetalClient {
   getNotifications(serverId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/notifications`,
+      `/servers/${encodeURIComponent(serverId)}/notifications`,
       { token },
     );
   }
@@ -211,13 +211,13 @@ export class WarpMetalClient {
   putNotifications(serverId, body, token) {
     return this.request(
       "PUT",
-      `/api/servers/${encodeURIComponent(serverId)}/notifications`,
+      `/servers/${encodeURIComponent(serverId)}/notifications`,
       { body, token },
     );
   }
 
   renewalCheckout(planId, { bodyText, token, paymentSignature }) {
-    return this.checkout(`/api/checkout/${encodeURIComponent(planId)}/renew`, {
+    return this.checkout(`/checkout/${encodeURIComponent(planId)}/renew`, {
       bodyText,
       token,
       paymentSignature,
@@ -227,7 +227,7 @@ export class WarpMetalClient {
   powerServer(serverId, action, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/power`,
+      `/servers/${encodeURIComponent(serverId)}/power`,
       {
         body: { action },
         token,
@@ -239,7 +239,7 @@ export class WarpMetalClient {
   reloadServer(serverId, body, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/reload`,
+      `/servers/${encodeURIComponent(serverId)}/reload`,
       {
         body,
         token,
@@ -251,7 +251,7 @@ export class WarpMetalClient {
   getOperation(operationId, token) {
     return this.request(
       "GET",
-      `/api/operations/${encodeURIComponent(operationId)}`,
+      `/operations/${encodeURIComponent(operationId)}`,
       {
         token,
       },
@@ -261,7 +261,7 @@ export class WarpMetalClient {
   enableRuntime(serverId, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/runtime/enable`,
+      `/servers/${encodeURIComponent(serverId)}/runtime/enable`,
       {
         body: {},
         token,
@@ -273,7 +273,7 @@ export class WarpMetalClient {
   getRuntime(serverId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/runtime`,
+      `/servers/${encodeURIComponent(serverId)}/runtime`,
       { token },
     );
   }
@@ -281,7 +281,7 @@ export class WarpMetalClient {
   bootstrapRuntime(serverId, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/runtime/bootstrap`,
+      `/servers/${encodeURIComponent(serverId)}/runtime/bootstrap`,
       { body: {}, token, idempotencyKey },
     );
   }
@@ -289,7 +289,7 @@ export class WarpMetalClient {
   listSandboxes(serverId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes`,
       { token },
     );
   }
@@ -297,7 +297,7 @@ export class WarpMetalClient {
   createSandboxes(serverId, sandboxes, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes`,
       {
         body: { sandboxes },
         token,
@@ -309,7 +309,7 @@ export class WarpMetalClient {
   getSandbox(serverId, sandboxId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}`,
       { token },
     );
   }
@@ -317,7 +317,7 @@ export class WarpMetalClient {
   sandboxAction(serverId, sandboxId, action, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/actions`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/actions`,
       { body: { action }, token, idempotencyKey },
     );
   }
@@ -325,7 +325,7 @@ export class WarpMetalClient {
   deleteSandbox(serverId, sandboxId, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/delete`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/delete`,
       { body: { confirm: "DELETE" }, token, idempotencyKey },
     );
   }
@@ -333,7 +333,7 @@ export class WarpMetalClient {
   listAccessGrants(serverId, sandboxId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
       { token },
     );
   }
@@ -341,7 +341,7 @@ export class WarpMetalClient {
   createAccessGrant(serverId, sandboxId, body, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants`,
       { body, token, idempotencyKey },
     );
   }
@@ -349,7 +349,7 @@ export class WarpMetalClient {
   getAccessGrant(serverId, sandboxId, grantId, token) {
     return this.request(
       "GET",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}`,
       { token },
     );
   }
@@ -357,7 +357,7 @@ export class WarpMetalClient {
   revokeAccessGrant(serverId, sandboxId, grantId, token, idempotencyKey) {
     return this.request(
       "POST",
-      `/api/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}/revoke`,
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/access-grants/${encodeURIComponent(grantId)}/revoke`,
       { body: { confirm: "REVOKE" }, token, idempotencyKey },
     );
   }

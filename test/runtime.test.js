@@ -151,17 +151,17 @@ test("order runtime file sends exact intent without changing checkout body", asy
   const fetchImpl = async (url, request = {}) => {
     const path = new URL(url).pathname;
     requests.push({ path, body: request.body });
-    if (path === "/api/health")
+    if (path === "/health")
       return jsonResponse(200, { status: "ok", purchasingReady: true });
-    if (path === "/api/catalog")
+    if (path === "/catalog")
       return jsonResponse(200, { products: [product] });
-    if (path === "/api/orders") {
+    if (path === "/orders") {
       return jsonResponse(201, {
         task: {
           id: "task_runtime",
           serverId: "srv_runtime12345",
           planId: "agent",
-          checkoutPath: "/api/checkout/agent",
+          checkoutPath: "/checkout/agent",
           agentRuntime: { state: "pending_server", desiredSandboxCount: 2 },
         },
         ownerToken: "owner_runtime_secret",
@@ -198,7 +198,7 @@ test("order runtime file sends exact intent without changing checkout body", asy
     );
     assert.equal(code, 0, stderr.value());
     assert.equal(stdout.value().includes("owner_runtime_secret"), false);
-    const order = requests.find((item) => item.path === "/api/orders");
+    const order = requests.find((item) => item.path === "/orders");
     assert.deepEqual(JSON.parse(order.body).agentRuntime, {
       sandboxes: [
         { name: "planner", size: "small" },
@@ -262,7 +262,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
   const fetchImpl = async (url, request = {}) => {
     const path = new URL(url).pathname;
     requests.push({ path, method: request.method, body: request.body });
-    if (request.method === "GET" && path === "/api/servers/srv_runtime12345") {
+    if (request.method === "GET" && path === "/servers/srv_runtime12345") {
       return jsonResponse(200, {
         task: {
           serverId: "srv_runtime12345",
@@ -275,7 +275,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
       return jsonResponse(202, {
         status: "accepted",
         operation: { id: "op_reload12345", kind: "reload", state: "queued" },
-        pollPath: "/api/operations/op_reload12345",
+        pollPath: "/operations/op_reload12345",
         reloadImpact: {
           diskDataLost: true,
           ownerKnownHostsNeedRefresh: true,
@@ -287,7 +287,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
         },
       });
     }
-    if (request.method === "GET" && path === "/api/operations/op_reload12345") {
+    if (request.method === "GET" && path === "/operations/op_reload12345") {
       return jsonResponse(200, {
         operation: {
           id: "op_reload12345",
@@ -404,13 +404,13 @@ test("sandbox creation uses the fixed public contract and reports pending as exi
   const fetchImpl = async (url, request = {}) => {
     const path = new URL(url).pathname;
     requests.push({ path, body: request.body, authorization: new Headers(request.headers).get("authorization") });
-    if (path === "/api/servers/srv_runtime12345") {
+    if (path === "/servers/srv_runtime12345") {
       return jsonResponse(200, {
         task: { serverId: "srv_runtime12345", planId: "agent", osName: "Ubuntu 24.04 LTS" },
       });
     }
-    if (path === "/api/catalog") return jsonResponse(200, { products: [product] });
-    if (path === "/api/servers/srv_runtime12345/sandboxes") {
+    if (path === "/catalog") return jsonResponse(200, { products: [product] });
+    if (path === "/servers/srv_runtime12345/sandboxes") {
       return jsonResponse(202, {
         runtime: { state: "pending_install", desiredRevision: 2, appliedRevision: 0 },
         sandboxes: [

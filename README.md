@@ -2,14 +2,13 @@
 
 The official command-line client and portable Agent Skill for WarpMetal.
 
-The CLI uses the public API at `https://api.warpmetal.com`, stores generated
-WarpMetal credentials in a user-private state file, and never reads or stores
-wallet private keys or SSH private-key contents. Version 0.5 adds dedicated
-hostname-based VPS identities, bounded autonomous renewal, verified lifecycle
-email, and signed refill requests through the x402api Agent Wallet. WarpMetal
-writes the exact credential-free payment request, explains the next commands to
-an agent, validates the returned payment artifact, and submits it without
-absorbing wallet custody.
+The CLI uses `https://api.warpmetal.com` as the API root; endpoints begin at
+`/health`, `/catalog`, `/orders`, and so on, without a second `/api` prefix. It
+stores generated WarpMetal credentials in a user-private state file and never
+reads or stores wallet private keys or SSH private-key contents. Version 0.6
+adopts this canonical root-path API. WarpMetal writes the exact credential-free
+payment request, explains the next commands to an agent, validates the returned
+payment artifact, and submits it without absorbing wallet custody.
 
 ## Distribution
 

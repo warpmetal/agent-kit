@@ -42,7 +42,7 @@ const sponsorshipInfoKeys = [
 const paymentRequired = {
   x402Version: 2,
   resource: {
-    url: "https://api.warpmetal.test/api/checkout/agent",
+    url: "https://api.warpmetal.test/checkout/agent",
     mimeType: "application/json",
   },
   accepts: [paymentRequirement],
@@ -127,10 +127,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       paymentSignature: headers.get("payment-signature") || undefined,
     });
 
-    if (request.method === "GET" && parsed.pathname === "/api/health") {
+    if (request.method === "GET" && parsed.pathname === "/health") {
       return jsonResponse(200, { status: "ok", purchasingReady: true });
     }
-    if (request.method === "GET" && parsed.pathname === "/api/catalog") {
+    if (request.method === "GET" && parsed.pathname === "/catalog") {
       return jsonResponse(200, {
         products: [
           {
@@ -142,13 +142,13 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         ],
       });
     }
-    if (request.method === "POST" && parsed.pathname === "/api/orders") {
+    if (request.method === "POST" && parsed.pathname === "/orders") {
       return jsonResponse(201, {
         task: {
           id: "task_test",
           serverId: "server_test",
           planId: "agent",
-          checkoutPath: "/api/checkout/agent",
+          checkoutPath: "/checkout/agent",
           state: "prepared",
         },
         ownerToken: "owner_secret_value",
@@ -157,7 +157,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     }
     if (
       request.method === "POST" &&
-      parsed.pathname === "/api/checkout/agent"
+      parsed.pathname === "/checkout/agent"
     ) {
       if (!headers.get("payment-signature")) {
         return jsonResponse(
@@ -220,7 +220,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(prepareOut.value().includes("owner_secret_value"), false);
     assert.equal(prepareErr.value(), "");
 
-    const orderRequest = requests.find(({ url }) => url === "/api/orders");
+    const orderRequest = requests.find(({ url }) => url === "/orders");
     assert.equal(orderRequest.idempotencyKey, "order_test_key");
     assert.deepEqual(JSON.parse(orderRequest.body), {
       planId: "agent",
@@ -303,7 +303,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.deepEqual(requestEnvelope, {
       version: 1,
       method: "POST",
-      url: "https://api.warpmetal.test/api/checkout/agent",
+      url: "https://api.warpmetal.test/checkout/agent",
       contentType: "application/json",
       bodyBase64: Buffer.from('{"taskId":"task_test"}').toString("base64"),
       paymentRequired: paymentRequiredHeader,
@@ -408,7 +408,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
 
     const checkoutRequests = requests.filter(
-      ({ url }) => url === "/api/checkout/agent",
+      ({ url }) => url === "/checkout/agent",
     );
     assert.equal(checkoutRequests.length, 3);
     assert.deepEqual(
@@ -498,7 +498,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     ...paymentRequired,
     resource: {
       ...paymentRequired.resource,
-      url: `${baseUrl}/api/checkout/agent/renew`,
+      url: `${baseUrl}/checkout/agent/renew`,
     },
   };
   const renewalHeader = Buffer.from(
@@ -528,7 +528,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
           id: "task_renewal",
           serverId: "server_renewal",
           planId: "agent",
-          checkoutPath: "/api/checkout/agent",
+          checkoutPath: "/checkout/agent",
         },
         ownerToken: "renewal_owner_secret",
       },
@@ -542,7 +542,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     );
     const fetchImpl = async (url, request = {}) => {
       const path = new URL(url).pathname;
-      if (request.method === "GET" && path === "/api/servers/server_renewal") {
+      if (request.method === "GET" && path === "/servers/server_renewal") {
         return jsonResponse(200, {
           task: {
             id: "task_renewal",
@@ -555,13 +555,13 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
       }
       if (
         request.method === "GET" &&
-        path === "/api/servers/server_renewal/renewal-policy"
+        path === "/servers/server_renewal/renewal-policy"
       ) {
         return jsonResponse(200, { configured: true, policy });
       }
       if (
         request.method === "POST" &&
-        path === "/api/checkout/agent/renew"
+        path === "/checkout/agent/renew"
       ) {
         return jsonResponse(
           402,
@@ -597,7 +597,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     ]);
     assert.equal(
       output.results[0].refillWorkflow.environment.X402API_NOTIFICATION_URL,
-      `${baseUrl}/api/notifications/x402api/refill`,
+      `${baseUrl}/notifications/x402api/refill`,
     );
     assert.equal(
       output.results[0].refillWorkflow.argv.includes("wmref_test-renewal"),

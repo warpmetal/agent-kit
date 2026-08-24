@@ -870,7 +870,7 @@ async function attachRenewalPaymentWorkflow(
   requestedEnvelopePath,
 ) {
   const bodyText = JSON.stringify({ serverId });
-  const checkoutPath = `/api/checkout/${server.planId}/renew`;
+  const checkoutPath = `/checkout/${server.planId}/renew`;
   const safe = challengeResult(serverId, bodyText, response);
   if (!safe.paymentRequired) return safe;
   const request = createPaymentRequestEnvelope({
@@ -934,7 +934,7 @@ async function attachRenewalPaymentWorkflow(
       : term.amountAtomic;
   const refillWorkflow = {
     environment: {
-      X402API_NOTIFICATION_URL: `${client.baseUrl}/api/notifications/x402api/refill`,
+      X402API_NOTIFICATION_URL: `${client.baseUrl}/notifications/x402api/refill`,
     },
     argv: [
       "x402api",

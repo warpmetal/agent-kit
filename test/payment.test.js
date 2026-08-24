@@ -125,11 +125,11 @@ function paymentChallenge(resourceUrl) {
 
 function request() {
   const paymentRequired = paymentChallenge(
-    "https://api.warpmetal.test/api/checkout/standard",
+    "https://api.warpmetal.test/checkout/standard",
   );
   return createPaymentRequestEnvelope({
     baseUrl: "https://api.warpmetal.test",
-    checkoutPath: "/api/checkout/standard",
+    checkoutPath: "/checkout/standard",
     checkoutBody: '{"taskId":"task_payment"}',
     paymentRequired: Buffer.from(JSON.stringify(paymentRequired)).toString(
       "base64",
@@ -164,7 +164,7 @@ test("payment request envelope matches the x402api canonical contract", () => {
   assert.deepEqual(value.envelope, {
     version: 1,
     method: "POST",
-    url: "https://api.warpmetal.test/api/checkout/standard",
+    url: "https://api.warpmetal.test/checkout/standard",
     contentType: "application/json",
     bodyBase64: Buffer.from('{"taskId":"task_payment"}').toString("base64"),
     paymentRequired: value.envelope.paymentRequired,
@@ -191,7 +191,7 @@ test("payment artifacts must be private and bound to the exact request", async (
     payerAddress: "0x2222222222222222222222222222222222222222",
     selectedRequirementDigest: expected.terms[0].requirementDigest,
     paymentSignature: signature(
-      paymentChallenge("https://api.warpmetal.test/api/checkout/standard")
+      paymentChallenge("https://api.warpmetal.test/checkout/standard")
         .resource,
     ),
     createdAt: new Date(Date.now() - 1_000).toISOString(),
@@ -225,7 +225,7 @@ test("payment artifacts must be private and bound to the exact request", async (
       `${JSON.stringify({
         ...artifact,
         paymentSignature: signature(
-          paymentChallenge("https://api.warpmetal.test/api/checkout/standard")
+          paymentChallenge("https://api.warpmetal.test/checkout/standard")
             .resource,
           "buyer_payment_different_123",
         ),
@@ -272,7 +272,7 @@ test("payment request envelopes reject challenge/resource mismatches", () => {
     () =>
       createPaymentRequestEnvelope({
         baseUrl: "https://api.warpmetal.test",
-        checkoutPath: "/api/checkout/standard",
+        checkoutPath: "/checkout/standard",
         checkoutBody: '{"taskId":"task_payment"}',
         paymentRequired,
         merchantReference: "task_payment",
@@ -284,7 +284,7 @@ test("payment request envelopes reject challenge/resource mismatches", () => {
 test("payment request envelopes reject historical buyer-funded profiles", () => {
   const historical = JSON.parse(
     JSON.stringify(
-      paymentChallenge("https://api.warpmetal.test/api/checkout/standard"),
+      paymentChallenge("https://api.warpmetal.test/checkout/standard"),
     ),
   );
   historical.accepts[0].extra.payloadProfile =
@@ -294,7 +294,7 @@ test("payment request envelopes reject historical buyer-funded profiles", () => 
     () =>
       createPaymentRequestEnvelope({
         baseUrl: "https://api.warpmetal.test",
-        checkoutPath: "/api/checkout/standard",
+        checkoutPath: "/checkout/standard",
         checkoutBody: '{"taskId":"task_payment"}',
         paymentRequired: Buffer.from(JSON.stringify(historical)).toString(
           "base64",
