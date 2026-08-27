@@ -19,7 +19,7 @@ files or pass a WarpMetal credential to `x402api`.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.1`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.2`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -66,10 +66,12 @@ skill automatically.
 
 6. If funding is short in an interactive conversation, show the exact deficit
    in normal token units and atomic units, the exact network, token symbol and
-   contract/mint, and the payer wallet's public receiving address. Tell the
-   human to transfer the token to the payer wallet address, never to the token
-   contract/mint or `paymentTerms.recipient`. Sponsored launch payments never
-   ask the buyer to fund ETH or SOL. Recheck the balance after the transfer.
+   contract/mint, and the payer wallet's public receiving address. Render only
+   that public address as a QR code and repeat the full address as copyable
+   text. Tell the human to transfer the token to the payer wallet address,
+   never to the token contract/mint or `paymentTerms.recipient`. Sponsored
+   launch payments never ask the buyer to fund ETH or SOL. Recheck the balance
+   after the transfer.
 7. If funding is short in an unattended run, use only a preconfigured refill
    mechanism returned by WarpMetal. For a configured renewal, set the returned
    `refillWorkflow.environment`, invoke `refillWorkflow.argv` once, and stop
@@ -114,7 +116,11 @@ paymentWorkflow.submit.argv
 Replace only `<wallet-name>` after selecting the wallet for the advertised
 network. Do not parse, rewrite, copy, or display the request envelope or payment
 artifact. The envelope excludes the WarpMetal owner token; the artifact holds
-the complete payment signature and remains owner-only.
+the complete payment signature and remains owner-only. The safe challenge JSON
+also contains `challengeHandle`, an opaque value retained by WarpMetal for
+merchant reconciliation. It is deliberately excluded from the x402api V1
+request envelope and must not be confused with the wallet-created buyer payment
+identifier.
 
 Choose only a term marked `agentWalletSupported: true`,
 `sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false`. The supported

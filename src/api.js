@@ -216,6 +216,14 @@ export class WarpMetalClient {
     );
   }
 
+  deleteNotifications(serverId, token) {
+    return this.request(
+      "DELETE",
+      `/servers/${encodeURIComponent(serverId)}/notifications`,
+      { token },
+    );
+  }
+
   renewalCheckout(planId, { bodyText, token, paymentSignature }) {
     return this.checkout(`/checkout/${encodeURIComponent(planId)}/renew`, {
       bodyText,

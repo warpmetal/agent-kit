@@ -32,7 +32,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.1
+npm install --global @x402api/agent-wallet-cli@0.2.2
 x402api help --json
 ```
 
@@ -85,10 +85,13 @@ After preparing an order, request its live payment challenge:
 warpmetal checkout challenge --task <taskId> --json
 ```
 
-On HTTP 402 the CLI returns exact `paymentTerms`, the pinned
+On HTTP 402 the CLI returns exact `paymentTerms`, the opaque `challengeHandle`
+that WarpMetal uses for merchant-side reconciliation, the pinned
 `@x402api/agent-wallet-cli` package contract, and argv arrays under
 `paymentWorkflow`. It also writes an owner-only request envelope that contains
-the exact checkout URL and body but no WarpMetal credential. The published
+the exact checkout URL and body but no WarpMetal credential or challenge
+handle. The handle is not a buyer payment identifier and is never a wallet
+signing input. The published
 launch wallet accepts sponsored Base USDC and sponsored Solana USDC/USDT only;
 the returned terms identify compatible alternatives and confirm that the buyer
 does not need ETH or SOL. Payment authority depends on execution context:
@@ -141,11 +144,13 @@ after authorization.
 
 If funding is short in an interactive conversation, tell the human the exact
 top-up in normal and atomic units, the network, stablecoin and contract/mint,
-and the payer wallet's public receiving address. The human sends the token to
-that wallet address, never to the token contract/mint or WarpMetal's payment
-recipient, and never sends ETH or SOL for a sponsored payment. In an unattended
-run, use a preconfigured refill or escalation mechanism or stop with
-`funding_required`.
+and the payer wallet's public receiving address. The returned
+`paymentWorkflow.fundingWorkflow` provides safe address and balance argv plus a
+presentation contract: render that public address as both a QR code and
+copyable text. The human sends the token to that wallet address, never to the
+token contract/mint or WarpMetal's payment recipient, and never sends ETH or
+SOL for a sponsored payment. In an unattended run, use a preconfigured refill
+or escalation mechanism or stop with `funding_required`.
 
 ## Autonomous renewal and refill
 
@@ -168,7 +173,11 @@ warpmetal renewal configure \
 ```
 
 The recipient must follow the one-time verification link before lifecycle or
-refill mail is sent. A recurring unattended agent can then run:
+refill mail is sent. If no verified notification email exists, `renewal
+configure` returns `email_required` before changing policy. Supply `--email`,
+or deliberately continue with `--without-email-notifications`; the latter does
+not enable signed refill-email workflows. A recurring unattended agent can then
+run:
 
 ```sh
 warpmetal renewal due --all --json
@@ -176,14 +185,16 @@ warpmetal renewal run --all-due --json
 ```
 
 Inside policy, the CLI returns the exact Agent Wallet authorization and submit
-argv. If balance is insufficient, run the returned `refillWorkflow.argv` with
-its `X402API_NOTIFICATION_URL` environment value. `x402api wallet
+argv. If balance is insufficient, `refillWorkflow` is returned only when the
+server has an active verified notification subscription. Run its argv with the
+returned `X402API_NOTIFICATION_URL` environment value. `x402api wallet
 notify-refill` signs an opaque subscription reference and wallet-produced
 balance fields; it cannot choose an email address. WarpMetal verifies the
 wallet signature and current on-chain balance before emailing the verified
-human the network, stablecoin, public wallet address, and required minimum
-top-up. The human may transfer more than that minimum; the renewal policy—not
-the refill target—remains the spending authority.
+human the network, stablecoin, public wallet address, required minimum top-up,
+and a locally generated QR encoding only that wallet address. The address is
+also repeated as copyable text. The human may transfer more than that minimum;
+the renewal policy—not the refill target—remains the spending authority.
 
 The agent never sends a partial x402 payment. If no verified refill path
 exists, it reports `funding_required`. If a previous payment is pending or

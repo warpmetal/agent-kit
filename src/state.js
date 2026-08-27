@@ -280,6 +280,7 @@ export class StateStore {
     {
       paymentRequired,
       paymentAttemptId,
+      challengeHandle,
       paymentRequestDigest,
       paymentChallengeDigest,
       paymentWorkflow,
@@ -293,6 +294,7 @@ export class StateStore {
         });
       order.paymentRequired = paymentRequired;
       order.paymentAttemptId = paymentAttemptId;
+      order.challengeHandle = challengeHandle;
       order.paymentRequestDigest = paymentRequestDigest;
       order.paymentChallengeDigest = paymentChallengeDigest;
       order.paymentRequestEnvelopePath = paymentWorkflow?.requestEnvelopePath;
@@ -465,6 +467,7 @@ export class StateStore {
         serverId: order.serverId,
         planId: order.planId,
         paymentAttemptId: order.paymentAttemptId,
+        challengeHandle: order.challengeHandle,
         walletPaymentAttemptId: order.walletPaymentAttemptId,
         walletName: order.walletName,
         payerAddress: order.walletPayerAddress,
@@ -499,6 +502,7 @@ export class StateStore {
         refillTargetAtomic: renewal.refillTargetAtomic,
         policy: renewal.policy,
         paymentAttemptId: renewal.paymentAttemptId,
+        challengeHandle: renewal.challengeHandle,
         paymentArtifactExpiresAt: renewal.paymentArtifactExpiresAt,
       })),
     };
