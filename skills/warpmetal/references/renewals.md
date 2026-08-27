@@ -23,15 +23,18 @@ warpmetal renewal configure \
   --allowed-asset <exact-contract-or-mint> \
   --wallet <agent-wallet-name> \
   [--refill-target-atomic <target>] \
-  [--email <human-address>] \
+  [--email <human-address> | --without-email-notifications] \
   --json
 ```
 
-`--email` queues verification; refill and expanded lifecycle notices remain
-disabled until the human opens the verification link. A refill target is a
-funding target, not spend permission, and cannot exceed the per-renewal cap.
-The human may transfer more than the displayed deficit. The agent may spend
-only the exact renewal amount allowed by policy.
+Without an active verified notification email, configuration asks for one
+before changing policy. `--email` queues verification; refill and expanded
+lifecycle notices remain disabled until the human opens the verification link.
+Use `--without-email-notifications` only as an explicit opt-out; no signed
+refill-email workflow is returned in that state. A refill target is a funding
+target, not spend permission, and cannot exceed the per-renewal cap. The human
+may transfer more than the displayed deficit. The agent may spend only the
+exact renewal amount allowed by policy.
 
 The WarpMetal CLI stores only the local wallet name. The backend stores
 non-secret limits, counters, payment rail, time horizon, and an opaque
@@ -70,8 +73,10 @@ one policy-compatible rail, and returns:
 ```text
 paymentWorkflow.authorize.argv
 paymentWorkflow.submit.argv
-refillWorkflow.environment
-refillWorkflow.argv
+paymentWorkflow.fundingWorkflow
+refillNotification
+refillWorkflow.environment (verified email only)
+refillWorkflow.argv (verified email only)
 ```
 
 Invoke the authorize argv once. It writes an owner-only artifact. Then invoke
@@ -112,10 +117,12 @@ authoritative balance before queuing email. The intent cannot name a recipient
 email, tenant, or product.
 
 In a human conversation, also display the exact deficit, network, token symbol,
-contract or mint, and payer wallet address. Tell the human to fund the payer
+contract or mint, and payer wallet address. Render only that public address as
+a QR code and repeat it as copyable text. Tell the human to fund the payer
 wallet address—not the token contract/mint and not WarpMetal's merchant
 recipient. Do not ask for ETH or SOL because supported network fees are
-sponsored.
+sponsored. A refill email repeats the address as text and includes a locally
+generated QR encoding only that address.
 
 ## Stop and recovery states
 

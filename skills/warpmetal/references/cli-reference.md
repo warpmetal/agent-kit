@@ -53,14 +53,16 @@ warpmetal order status \
 ```
 
 On HTTP 402, `checkout challenge` validates and displays exact payment terms,
-writes a credential-free x402api V1 request envelope with owner-only
+writes the opaque x402api `challengeHandle` to private WarpMetal state for
+merchant reconciliation, and writes a credential-free x402api V1 request envelope with owner-only
 permissions, and returns the exact pinned wallet package, V1 contract probe,
 matching wallet-skill install, authorization, and WarpMetal submission argv
 arrays. The default envelope and suggested artifact paths live under the
 private WarpMetal state directory. An explicit output path must not already
-contain different content.
+contain different content. `challengeHandle` is intentionally absent from the
+wallet envelope: it is neither a buyer payment identifier nor signing input.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.1`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.2`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
 WarpMetal rejects a challenge with no compatible sponsored term. Because the
@@ -101,7 +103,8 @@ warpmetal renewal configure \
   (--maximum-renewals <n> | --renew-through <UTC>) \
   [--maximum-total-spend-atomic <amount>] \
   --allowed-network <network> --allowed-asset <asset> \
-  --wallet <name> [--refill-target-atomic <amount>] [--email <address>] --json
+  --wallet <name> [--refill-target-atomic <amount>] \
+  [--email <address> | --without-email-notifications] --json
 warpmetal renewal status --server <serverId> --json
 warpmetal renewal due (--server <serverId> | --all) --json
 warpmetal renewal prepare --server <serverId> --json
@@ -113,9 +116,12 @@ warpmetal notifications configure --server <serverId> --email <address> \
 warpmetal notifications status --server <serverId> --json
 ```
 
-`renewal prepare` returns exact payment and refill argv arrays. `renewal run`
-is an agent-facing state machine, not a wallet-signing daemon. See
-[renewals.md](renewals.md).
+Without a verified notification email, renewal configuration asks for an email
+before mutating policy unless `--without-email-notifications` explicitly opts
+out. `renewal prepare` always returns safe funding address/balance argv and
+returns signed refill-email argv only for a verified active subscription.
+`renewal run` is an agent-facing state machine, not a wallet-signing daemon.
+See [renewals.md](renewals.md).
 
 ## Server management
 

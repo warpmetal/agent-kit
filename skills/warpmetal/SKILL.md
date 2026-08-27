@@ -111,7 +111,9 @@ task or operator limit.
 After interactive confirmation or autonomous policy validation, invoke the
 returned authorize argv once. The separate
 `x402api` executable owns the wallet, validates the envelope, and writes the
-payment artifact. Then invoke the returned submit argv, equivalent to:
+payment artifact. The returned `challengeHandle` is opaque merchant
+reconciliation metadata; never copy it into the request envelope or treat it as
+the buyer payment identifier. Then invoke the returned submit argv, equivalent to:
 
 ```sh
 warpmetal checkout submit \
@@ -152,9 +154,12 @@ price, asset, network, count, horizon, or total-budget mismatch.
 Run `warpmetal renewal prepare --server <serverId> --json`, then invoke only
 the returned `paymentWorkflow.authorize.argv` and
 `paymentWorkflow.submit.argv`. If authorization reports insufficient balance,
-set the returned `refillWorkflow.environment`, invoke its exact argv once, and
-stop until funding arrives. The signed refill intent resolves to a verified
-human contact; never add an email address to it. Never make a partial payment.
+use `paymentWorkflow.fundingWorkflow` to obtain the public address and balance,
+then show the address as both a QR code and copyable text. Only when
+`refillNotification.available` is true, set the returned
+`refillWorkflow.environment`, invoke its exact argv once, and stop until
+funding arrives. The signed refill intent resolves to a verified human contact;
+never add an email address to it. Never make a partial payment.
 
 After funding, prepare again, authorize exactly once, submit with WarpMetal,
 and confirm the returned `termEndsAt`. On `reconcile_pending` or

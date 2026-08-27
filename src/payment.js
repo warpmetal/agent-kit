@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.1";
+export const AGENT_WALLET_VERSION = "0.2.2";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -696,6 +696,7 @@ export function paymentWorkflow({
   taskId,
   serverId,
   kind = "checkout",
+  wallet = "<wallet-name>",
   requestEnvelopePath,
   paymentArtifactPath,
 }) {
@@ -739,13 +740,34 @@ export function paymentWorkflow({
         "payment",
         "authorize",
         "--wallet",
-        "<wallet-name>",
+        wallet,
         "--request-envelope",
         requestEnvelopePath,
         "--artifact-out",
         paymentArtifactPath,
         "--json",
       ],
+    },
+    fundingWorkflow: {
+      action: "fund_wallet",
+      trigger: "insufficient_asset_balance",
+      wallet,
+      address: {
+        argv: ["x402api", "wallet", "address", "--wallet", wallet, "--json"],
+      },
+      balance: {
+        argv: ["x402api", "wallet", "balance", "--wallet", wallet, "--json"],
+      },
+      presentation: {
+        qrPayloadField: "address",
+        textPayloadField: "address",
+        showQr: true,
+        showAddressString: true,
+        showExactDeficit: true,
+        showNetworkAndAsset: true,
+      },
+      safety:
+        "Encode and fund only the payer wallet public address. Never fund the token contract, mint, or WarpMetal merchant recipient; sponsored payments do not require ETH or SOL.",
     },
     submit: {
       argv:

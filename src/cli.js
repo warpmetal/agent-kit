@@ -84,6 +84,7 @@ Usage:
   warpmetal renewal configure --server <serverId> --renew-before-days <n>
     --maximum-payment-atomic <amount> (--maximum-renewals <n> | --renew-through <UTC>)
     --allowed-network <CAIP-2> --allowed-asset <asset> --wallet <name>
+    [--email <address> | --without-email-notifications]
   warpmetal renewal status|prepare|submit|run ...
   warpmetal renewal due (--server <serverId> | --all)
   warpmetal notifications configure --server <serverId> --email <address>
@@ -364,8 +365,14 @@ async function pollGrant(
 
 function challengeResult(taskId, checkoutBody, response) {
   const paymentRequired = response.headers["payment-required"];
+  const challengeHandle = response.headers["x-x402api-challenge-handle"];
   if (response.status === 402 && !paymentRequired) {
     throw new CliError("WarpMetal returned HTTP 402 without PAYMENT-REQUIRED.");
+  }
+  if (response.status === 402 && !challengeHandle) {
+    throw new CliError(
+      "WarpMetal returned HTTP 402 without X-X402API-Challenge-Handle.",
+    );
   }
   return {
     status: response.data?.status,
@@ -374,6 +381,7 @@ function challengeResult(taskId, checkoutBody, response) {
       response.data?.paymentAttemptId ||
       response.headers["x-warpmetal-payment-attempt"],
     paymentRequired,
+    challengeHandle,
     checkoutBodySha256: createHash("sha256").update(checkoutBody).digest("hex"),
   };
 }
@@ -645,7 +653,7 @@ async function handleCheckoutChallenge(client, store, options, context) {
     stringOption(options, "request-envelope-out"),
   );
   const paymentInstructions = safe.paymentWorkflow
-    ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
+    ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nIf funding is short, run ${shellCommand(safe.paymentWorkflow.fundingWorkflow.address.argv)} and ${shellCommand(safe.paymentWorkflow.fundingWorkflow.balance.argv)}, then show the payer address as both a QR code and copyable text.\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
     : "";
   emit(
     context.stdout,
@@ -775,6 +783,44 @@ export function refillRenewBy(termEndsAt, currentTime = Date.now()) {
   return new Date(Number.isFinite(parsed) && parsed > minimum ? parsed : minimum).toISOString();
 }
 
+function activeNotificationSubscription(notifications) {
+  const subscription = notifications?.subscription;
+  return Boolean(
+    notifications?.configured &&
+      subscription?.verified &&
+      !subscription?.disabled,
+  );
+}
+
+function refillNotificationState(notifications, policy) {
+  const subscription = notifications?.subscription;
+  if (!notifications?.configured || !subscription || subscription.disabled) {
+    return {
+      available: false,
+      reason: "verified_email_required",
+      subscription: subscription || null,
+    };
+  }
+  if (!subscription.verified) {
+    return {
+      available: false,
+      reason: "email_verification_required",
+      subscription,
+    };
+  }
+  if (
+    policy?.notificationReference &&
+    subscription.reference !== policy.notificationReference
+  ) {
+    return {
+      available: false,
+      reason: "notification_reference_mismatch",
+      subscription,
+    };
+  }
+  return { available: true, reason: null, subscription };
+}
+
 async function handleRenewalConfigure(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const wallet = stringOption(options, "wallet", { required: true });
@@ -818,7 +864,72 @@ async function handleRenewalConfigure(client, store, options, context) {
   for (const [key, value] of Object.entries(body)) {
     if (value === undefined) delete body[key];
   }
+  const email = stringOption(options, "email");
+  const withoutEmailNotifications = booleanOption(
+    options,
+    "without-email-notifications",
+  );
+  if (email && withoutEmailNotifications) {
+    throw new CliError(
+      "Use either --email or --without-email-notifications, not both.",
+      { exitCode: 2 },
+    );
+  }
   const token = await requireServerToken(store, serverId, options, context.env);
+  let notifications = (await client.getNotifications(serverId, token)).data;
+  if (
+    body.enabled &&
+    !email &&
+    !withoutEmailNotifications &&
+    !activeNotificationSubscription(notifications)
+  ) {
+    const verificationPending = Boolean(
+      notifications.configured &&
+        notifications.subscription &&
+        !notifications.subscription.disabled,
+    );
+    const action = verificationPending
+      ? "email_verification_required"
+      : "email_required";
+    const output = {
+      action,
+      serverId,
+      reason: verificationPending
+        ? "Verify the existing notification email or resend verification with --email."
+        : "A verified email enables renewal and wallet-refill notifications.",
+      notifications,
+      next: {
+        configureEmail: `warpmetal renewal configure ... --email <address>`,
+        continueWithoutEmail:
+          "warpmetal renewal configure ... --without-email-notifications",
+      },
+    };
+    emit(
+      context.stdout,
+      output,
+      context.json,
+      verificationPending
+        ? `Verify the notification email for ${serverId}, or rerun with --email to resend verification. To opt out explicitly, rerun with --without-email-notifications.`
+        : `An email is needed for renewal and wallet-refill notifications. Rerun with --email <address>, or opt out explicitly with --without-email-notifications.`,
+    );
+    return 6;
+  }
+  if (email) {
+    notifications = (
+      await client.putNotifications(serverId, { email }, token)
+    ).data;
+  } else if (
+    withoutEmailNotifications &&
+    notifications.configured &&
+    notifications.subscription &&
+    !notifications.subscription.disabled
+  ) {
+    await client.deleteNotifications(serverId, token);
+    notifications = {
+      ...notifications,
+      subscription: { ...notifications.subscription, disabled: true },
+    };
+  }
   const result = await client.putRenewalPolicy(serverId, body, token);
   await store.saveRenewalPolicy(
     serverId,
@@ -826,19 +937,27 @@ async function handleRenewalConfigure(client, store, options, context) {
     wallet,
     refillTargetAtomic,
   );
-  const email = stringOption(options, "email");
-  let notifications;
-  if (email) {
-    notifications = (
-      await client.putNotifications(serverId, { email }, token)
-    ).data;
-  }
-  const output = { ...result.data, wallet, refillTargetAtomic, notifications };
+  const notificationState = {
+    optedOut: withoutEmailNotifications,
+    refillAvailable: activeNotificationSubscription(notifications),
+    status: withoutEmailNotifications
+      ? "opted_out"
+      : activeNotificationSubscription(notifications)
+        ? "verified"
+        : "verification_required",
+  };
+  const output = {
+    ...result.data,
+    wallet,
+    refillTargetAtomic,
+    notifications,
+    notificationState,
+  };
   emit(
     context.stdout,
     output,
     context.json,
-    `Configured bounded renewal for ${serverId} with wallet ${wallet}.${email ? " Check the email verification link." : ""}`,
+    `Configured bounded renewal for ${serverId} with wallet ${wallet}.${email && !notificationState.refillAvailable ? " Check the email verification link." : withoutEmailNotifications ? " Email and wallet-refill notifications were explicitly skipped." : ""}`,
   );
   return 0;
 }
@@ -866,6 +985,7 @@ async function attachRenewalPaymentWorkflow(
   serverId,
   server,
   renewal,
+  notifications,
   response,
   requestedEnvelopePath,
 ) {
@@ -924,6 +1044,7 @@ async function attachRenewalPaymentWorkflow(
     taskId: server.id,
     serverId,
     kind: "renewal",
+    wallet: renewal.wallet,
     requestEnvelopePath,
     paymentArtifactPath: defaults.paymentArtifactPath,
   });
@@ -932,27 +1053,39 @@ async function attachRenewalPaymentWorkflow(
     BigInt(renewal.refillTargetAtomic) >= BigInt(term.amountAtomic)
       ? renewal.refillTargetAtomic
       : term.amountAtomic;
-  const refillWorkflow = {
-    environment: {
-      X402API_NOTIFICATION_URL: `${client.baseUrl}/notifications/x402api/refill`,
-    },
-    argv: [
-      "x402api",
-      "wallet",
-      "notify-refill",
-      "--wallet",
-      renewal.wallet,
-      "--subscription-reference",
-      renewal.policy.notificationReference,
-      "--renew-by",
-      refillRenewBy(server.termEndsAt),
-      "--target-balance-atomic",
-      refillTarget,
-      "--reason",
-      "renewal",
-      "--json",
-    ],
-  };
+  Object.assign(workflow.fundingWorkflow, {
+    network: term.network,
+    asset: term.asset,
+    requiredPaymentAtomic: term.amountAtomic,
+    targetBalanceAtomic: refillTarget,
+  });
+  const refillNotification = refillNotificationState(
+    notifications,
+    renewal.policy,
+  );
+  const refillWorkflow = refillNotification.available
+    ? {
+        environment: {
+          X402API_NOTIFICATION_URL: `${client.baseUrl}/notifications/x402api/refill`,
+        },
+        argv: [
+          "x402api",
+          "wallet",
+          "notify-refill",
+          "--wallet",
+          renewal.wallet,
+          "--subscription-reference",
+          refillNotification.subscription.reference,
+          "--renew-by",
+          refillRenewBy(server.termEndsAt),
+          "--target-balance-atomic",
+          refillTarget,
+          "--reason",
+          "renewal",
+          "--json",
+        ],
+      }
+    : undefined;
   Object.assign(safe, {
     serverId,
     paymentTerms: request.terms,
@@ -960,6 +1093,7 @@ async function attachRenewalPaymentWorkflow(
     paymentRequestDigest: request.requestDigest,
     paymentChallengeDigest: request.challengeDigest,
     paymentWorkflow: workflow,
+    refillNotification,
     refillWorkflow,
   });
   await store.saveRenewalChallenge(serverId, {
@@ -968,6 +1102,7 @@ async function attachRenewalPaymentWorkflow(
     termEndsAt: server.termEndsAt,
     paymentRequired: safe.paymentRequired,
     paymentAttemptId: safe.paymentAttemptId,
+    challengeHandle: safe.challengeHandle,
     paymentRequestDigest: safe.paymentRequestDigest,
     paymentChallengeDigest: safe.paymentChallengeDigest,
     paymentRequestEnvelopePath: requestEnvelopePath,
@@ -988,9 +1123,10 @@ function renewalActionExitCode(action) {
 
 async function prepareRenewal(client, store, serverId, options, context) {
   const token = await requireServerToken(store, serverId, options, context.env);
-  const [serverResult, policyResult] = await Promise.all([
+  const [serverResult, policyResult, notificationsResult] = await Promise.all([
     client.getServer(serverId, token),
     client.getRenewalPolicy(serverId, token),
+    client.getNotifications(serverId, token),
   ]);
   if (!policyResult.data.configured) {
     return {
@@ -1032,6 +1168,7 @@ async function prepareRenewal(client, store, serverId, options, context) {
     serverId,
     serverResult.data.task,
     local,
+    notificationsResult.data,
     response,
     stringOption(options, "request-envelope-out"),
   );
@@ -1053,8 +1190,16 @@ async function prepareRenewal(client, store, serverId, options, context) {
 async function handleRenewalPrepare(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const safe = await prepareRenewal(client, store, serverId, options, context);
+  const fundingInstructions = safe.paymentWorkflow
+    ? `\nIf funding is short, run ${shellCommand(safe.paymentWorkflow.fundingWorkflow.address.argv)} and ${shellCommand(safe.paymentWorkflow.fundingWorkflow.balance.argv)}. Show the returned payer address as both a QR code and copyable text, with the exact network, asset, and deficit.`
+    : "";
+  const refillInstructions = safe.refillWorkflow
+    ? `\nFor verified email refill, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}`
+    : safe.paymentWorkflow
+      ? `\nVerified email refill is unavailable (${safe.refillNotification.reason}). Configure and verify notifications, or fund the displayed payer address directly.`
+      : "";
   const instructions = safe.paymentWorkflow
-    ? `\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nIf the wallet is short of funds, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}\nSubmit: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
+    ? `\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}${fundingInstructions}${refillInstructions}\nSubmit: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
     : "";
   emit(
     context.stdout,
@@ -2325,6 +2470,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "allowed-asset",
         "refill-target-atomic",
         "email",
+        "without-email-notifications",
         "disabled",
       ]);
       return handleRenewalConfigure(client, store, options, context);

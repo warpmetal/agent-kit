@@ -163,7 +163,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         return jsonResponse(
           402,
           { status: "payment_required", paymentAttemptId: "payment_test" },
-          { "payment-required": paymentRequiredHeader },
+          {
+            "payment-required": paymentRequiredHeader,
+            "x-x402api-challenge-handle": "charge_test",
+          },
         );
       }
       return jsonResponse(202, {
@@ -259,6 +262,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       paymentRequiredHeader,
     );
     const challenge = JSON.parse(challengeOut.value());
+    assert.equal(challenge.challengeHandle, "charge_test");
     assert.deepEqual(challenge.paymentTerms[0], {
       scheme: "exact",
       network: "eip155:8453",
@@ -276,11 +280,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.1",
-      spec: "@x402api/agent-wallet-cli@0.2.1",
+      version: "0.2.2",
+      spec: "@x402api/agent-wallet-cli@0.2.2",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.1"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.2"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
@@ -293,6 +297,19 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       "payment",
       "authorize",
     ]);
+    assert.deepEqual(challenge.paymentWorkflow.fundingWorkflow.address.argv, [
+      "x402api",
+      "wallet",
+      "address",
+      "--wallet",
+      "<wallet-name>",
+      "--json",
+    ]);
+    assert.equal(challenge.paymentWorkflow.fundingWorkflow.presentation.showQr, true);
+    assert.equal(
+      challenge.paymentWorkflow.fundingWorkflow.presentation.showAddressString,
+      true,
+    );
     assert.equal(
       challenge.paymentWorkflow.submit.argv.includes("--payment-artifact"),
       true,
@@ -312,6 +329,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     });
     assert.equal(
       JSON.stringify(requestEnvelope).includes("owner_secret_value"),
+      false,
+    );
+    assert.equal(JSON.stringify(requestEnvelope).includes("charge_test"), false);
+    assert.equal(
+      Object.hasOwn(requestEnvelope, "challengeHandle"),
       false,
     );
 
@@ -460,6 +482,58 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
   }
 });
 
+test("checkout challenge fails closed without the x402api challenge handle", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-handle-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_missing_handle",
+          serverId: "server_missing_handle",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "owner_missing_handle",
+      },
+      '{"taskId":"task_missing_handle"}',
+    );
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_missing_handle",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl: async () =>
+          jsonResponse(
+            402,
+            { status: "payment_required", paymentAttemptId: "payment_missing_handle" },
+            { "payment-required": paymentRequiredHeader },
+          ),
+      },
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(stdout.value(), "");
+    assert.match(stderr.value(), /without X-X402API-Challenge-Handle/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("power changes require the same explicit confirmation", async () => {
   const stdout = capture();
   const stderr = capture();
@@ -521,6 +595,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     nextAction: "sign_payment",
     reason: null,
   };
+  let notificationsVerified = true;
   try {
     await store.savePreparedOrder(
       {
@@ -560,13 +635,32 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
         return jsonResponse(200, { configured: true, policy });
       }
       if (
+        request.method === "GET" &&
+        path === "/servers/server_renewal/notifications"
+      ) {
+        return jsonResponse(200, {
+          configured: true,
+          subscription: {
+            reference: "wmref_test-renewal",
+            email: "o***@example.com",
+            verified: notificationsVerified,
+            disabled: false,
+            events: ["wallet.refill_required"],
+          },
+          supportedEvents: ["wallet.refill_required"],
+        });
+      }
+      if (
         request.method === "POST" &&
         path === "/checkout/agent/renew"
       ) {
         return jsonResponse(
           402,
           { status: "payment_required", paymentAttemptId: "payment_renewal" },
-          { "payment-required": renewalHeader },
+          {
+            "payment-required": renewalHeader,
+            "x-x402api-challenge-handle": "charge_renewal",
+          },
         );
       }
       return jsonResponse(404, { error: { message: "Not found" } });
@@ -590,6 +684,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     const output = JSON.parse(stdout.value());
     assert.equal(output.action, "batch");
     assert.equal(output.results[0].action, "sign_payment");
+    assert.equal(output.results[0].challengeHandle, "charge_renewal");
     assert.deepEqual(output.results[0].paymentWorkflow.authorize.argv.slice(0, 3), [
       "x402api",
       "payment",
@@ -603,6 +698,227 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
       output.results[0].refillWorkflow.argv.includes("wmref_test-renewal"),
       true,
     );
+    assert.equal(output.results[0].refillNotification.available, true);
+    assert.deepEqual(
+      output.results[0].paymentWorkflow.fundingWorkflow.address.argv,
+      [
+        "x402api",
+        "wallet",
+        "address",
+        "--wallet",
+        "renewal-wallet",
+        "--json",
+      ],
+    );
+    assert.equal(
+      output.results[0].paymentWorkflow.fundingWorkflow.targetBalanceAtomic,
+      "30000000",
+    );
+
+    notificationsVerified = false;
+    const unverifiedOut = capture();
+    const unverifiedErr = capture();
+    const unverifiedExit = await main(
+      [
+        "renewal",
+        "run",
+        "--all-due",
+        "--base-url",
+        baseUrl,
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: unverifiedOut.stream,
+        stderr: unverifiedErr.stream,
+        env: {},
+        fetchImpl,
+      },
+    );
+    assert.equal(unverifiedExit, 7, unverifiedErr.value());
+    const unverified = JSON.parse(unverifiedOut.value()).results[0];
+    assert.equal(unverified.refillWorkflow, undefined);
+    assert.equal(unverified.refillNotification.available, false);
+    assert.equal(
+      unverified.refillNotification.reason,
+      "email_verification_required",
+    );
+    assert.equal(unverified.paymentWorkflow.fundingWorkflow.action, "fund_wallet");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("renewal configure asks for email before mutating unless explicitly skipped", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-renewal-email-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const baseUrl = "https://api.warpmetal.test";
+  const requests = [];
+  let notificationDocument = {
+    configured: false,
+    subscription: null,
+    supportedEvents: ["wallet.refill_required"],
+  };
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_email",
+          serverId: "server_email",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "renewal_owner_secret",
+      },
+      '{"taskId":"task_email"}',
+    );
+    const policy = {
+      serverId: "server_email",
+      enabled: true,
+      renewBeforeDays: 3,
+      maximumPaymentAtomic: "30000000",
+      maximumRenewals: 12,
+      renewThrough: null,
+      maximumTotalSpendAtomic: "360000000",
+      renewalsCompleted: 0,
+      totalSpendAtomic: "0",
+      allowedNetwork: paymentRequirement.network,
+      allowedAsset: paymentRequirement.asset.toLowerCase(),
+      notificationReference: "wmref_without-email",
+      nextAction: "not_due",
+      reason: null,
+    };
+    const fetchImpl = async (url, request = {}) => {
+      const path = new URL(url).pathname;
+      requests.push(`${request.method || "GET"} ${path}`);
+      if (
+        request.method === "GET" &&
+        path === "/servers/server_email/notifications"
+      ) {
+        return jsonResponse(200, notificationDocument);
+      }
+      if (
+        request.method === "PUT" &&
+        path === "/servers/server_email/notifications"
+      ) {
+        notificationDocument = {
+          configured: true,
+          subscription: {
+            reference: "wmref_with-email",
+            email: "o***@example.com",
+            verified: false,
+            disabled: false,
+            events: ["wallet.refill_required"],
+          },
+          supportedEvents: ["wallet.refill_required"],
+        };
+        return jsonResponse(202, {
+          ...notificationDocument,
+          verificationRequired: true,
+        });
+      }
+      if (
+        request.method === "DELETE" &&
+        path === "/servers/server_email/notifications"
+      ) {
+        notificationDocument = {
+          ...notificationDocument,
+          subscription: {
+            ...notificationDocument.subscription,
+            disabled: true,
+          },
+        };
+        return jsonResponse(200, { configured: true, disabled: true });
+      }
+      if (
+        request.method === "PUT" &&
+        path === "/servers/server_email/renewal-policy"
+      ) {
+        return jsonResponse(200, { configured: true, policy });
+      }
+      return jsonResponse(404, { error: { message: "Not found" } });
+    };
+    const common = [
+      "renewal",
+      "configure",
+      "--server",
+      "server_email",
+      "--wallet",
+      "renewal-wallet",
+      "--renew-before-days",
+      "3",
+      "--maximum-payment-atomic",
+      "30000000",
+      "--maximum-renewals",
+      "12",
+      "--maximum-total-spend-atomic",
+      "360000000",
+      "--allowed-network",
+      paymentRequirement.network,
+      "--allowed-asset",
+      paymentRequirement.asset,
+      "--base-url",
+      baseUrl,
+      "--state-dir",
+      stateDirectory,
+      "--json",
+    ];
+    const promptOut = capture();
+    const promptErr = capture();
+    const promptExit = await main(common, {
+      stdout: promptOut.stream,
+      stderr: promptErr.stream,
+      env: {},
+      fetchImpl,
+    });
+    assert.equal(promptExit, 6, promptErr.value());
+    assert.equal(JSON.parse(promptOut.value()).action, "email_required");
+    assert.equal(
+      requests.includes("PUT /servers/server_email/renewal-policy"),
+      false,
+    );
+
+    const emailOut = capture();
+    const emailErr = capture();
+    const emailStart = requests.length;
+    const emailExit = await main([...common, "--email", "ops@example.com"], {
+      stdout: emailOut.stream,
+      stderr: emailErr.stream,
+      env: {},
+      fetchImpl,
+    });
+    assert.equal(emailExit, 0, emailErr.value());
+    const emailConfigured = JSON.parse(emailOut.value());
+    assert.equal(emailConfigured.notificationState.status, "verification_required");
+    assert.deepEqual(requests.slice(emailStart), [
+      "GET /servers/server_email/notifications",
+      "PUT /servers/server_email/notifications",
+      "PUT /servers/server_email/renewal-policy",
+    ]);
+
+    const skippedOut = capture();
+    const skippedErr = capture();
+    const skippedStart = requests.length;
+    const skippedExit = await main(
+      [...common, "--without-email-notifications"],
+      {
+        stdout: skippedOut.stream,
+        stderr: skippedErr.stream,
+        env: {},
+        fetchImpl,
+      },
+    );
+    assert.equal(skippedExit, 0, skippedErr.value());
+    const skipped = JSON.parse(skippedOut.value());
+    assert.equal(skipped.notificationState.optedOut, true);
+    assert.equal(skipped.notificationState.refillAvailable, false);
+    assert.deepEqual(requests.slice(skippedStart), [
+      "GET /servers/server_email/notifications",
+      "DELETE /servers/server_email/notifications",
+      "PUT /servers/server_email/renewal-policy",
+    ]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
