@@ -7,11 +7,12 @@
 - [x] Bundled skill matches the authoritative `skills/warpmetal` source.
 - [x] Local repo marketplace is installed and the plugin is enabled in Codex.
 - [ ] A new Codex task triggers the plugin for each starter prompt.
-- [x] CLI version is `0.7.0` and the full suite passes on Node.js 20 and 22.
+- [x] CLI version is `0.7.1` and the full suite passes on Node.js 20 and 22.
 - [x] The public plugin remains skills-only; its automated test rejects bundled
   `bin/` or `src/` code and requires an exact copy of the reviewed skill.
-- [x] The companion CLI changes for challenge reconciliation, safe funding
-  instructions, and verified refill notifications are covered by tests.
+- [x] The companion CLI changes for challenge reconciliation, Agent Wallet
+  0.2.3 sponsorship policy, safe funding instructions, and verified refill
+  notifications are covered by tests.
 - [x] Live health reported `purchasingReady: true` on 2026-08-27.
 - [ ] Recheck live health immediately before reviewer purchase-flow testing.
 

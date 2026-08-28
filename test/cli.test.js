@@ -74,10 +74,10 @@ const paymentRequired = {
           },
         ],
         buyerNativeFeeRequired: false,
-        billingParty: "tenant_service_credit",
+        billingParty: "platform_treasury",
         maximumReservationEvidenceDigest: `sha256:${"5".repeat(64)}`,
         expiresAt: "2099-01-01T00:00:00.000Z",
-        finalChargePolicy: "canonical_actual_gas_capped_by_reservation",
+        finalChargePolicy: "platform_treasury_actual_cost",
       },
       schema: {
         $id: "urn:com:x402api:gas-sponsorship:v1",
@@ -280,11 +280,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.2",
-      spec: "@x402api/agent-wallet-cli@0.2.2",
+      version: "0.2.3",
+      spec: "@x402api/agent-wallet-cli@0.2.3",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.2"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.3"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [

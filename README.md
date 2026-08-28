@@ -34,7 +34,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.2
+npm install --global @x402api/agent-wallet-cli@0.2.3
 x402api help --json
 ```
 
@@ -58,7 +58,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.7.0 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.7.1 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 
@@ -119,7 +119,10 @@ handle. The handle is not a buyer payment identifier and is never a wallet
 signing input. The published
 launch wallet accepts sponsored Base USDC and sponsored Solana USDC/USDT only;
 the returned terms identify compatible alternatives and confirm that the buyer
-does not need ETH or SOL. Payment authority depends on execution context:
+does not need ETH or SOL. x402api pays the actual network fee from its platform
+treasury; the merchant tenant's active allowance controls sponsorship
+admission but is not charged actual gas. Payment authority depends on execution
+context:
 
 - When a human is actively chatting with the agent, show the exact live terms
   and ask for confirmation immediately before authorizing and submitting.

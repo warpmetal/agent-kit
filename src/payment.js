@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.2";
+export const AGENT_WALLET_VERSION = "0.2.3";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -183,6 +183,14 @@ function paymentResource(value, label) {
 function validateGasSponsorship(declaration) {
   const info = declaration.info;
   const schema = declaration.schema;
+  const platformTreasuryPolicy =
+    isObject(info) &&
+    info.billingParty === "platform_treasury" &&
+    info.finalChargePolicy === "platform_treasury_actual_cost";
+  const legacyTenantCreditPolicy =
+    isObject(info) &&
+    info.billingParty === "tenant_service_credit" &&
+    info.finalChargePolicy === "canonical_actual_gas_capped_by_reservation";
   const infoKeys = [
     "billingParty",
     "buyerNativeFeeRequired",
@@ -199,8 +207,7 @@ function validateGasSponsorship(declaration) {
     info.version !== 1 ||
     info.mode !== "facilitator_pays" ||
     info.buyerNativeFeeRequired !== false ||
-    info.billingParty !== "tenant_service_credit" ||
-    info.finalChargePolicy !== "canonical_actual_gas_capped_by_reservation" ||
+    (!platformTreasuryPolicy && !legacyTenantCreditPolicy) ||
     typeof info.maximumReservationEvidenceDigest !== "string" ||
     !SHA256.test(info.maximumReservationEvidenceDigest) ||
     typeof info.expiresAt !== "string" ||
