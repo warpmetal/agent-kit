@@ -17,6 +17,8 @@ payment artifact, and submits it without absorbing wallet custody.
   executable
 - Skill: `skills/warpmetal` in the GitHub repository and bundled inside the
   npm package
+- Codex plugin: the skills-only package under `plugins/warpmetal`, exposed for
+  repository testing by `.agents/plugins/marketplace.json`
 
 Keeping the skill beside the CLI gives Codex, Claude, and other Agent
 Skills-compatible tools one canonical set of safety instructions while the CLI
@@ -51,6 +53,29 @@ The bundled `skills/warpmetal` directory follows the portable Agent Skills
 layout. Agents that support that layout but use another installation path can
 consume that directory directly; they do not need a different WarpMetal API
 integration.
+
+## Codex plugin
+
+The repository also contains a skills-only WarpMetal plugin for the public
+Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
+artifact from the npm CLI and requires `warpmetal` CLI version 0.7.0 or newer.
+
+To test the repository marketplace after the plugin lands on `main`:
+
+```sh
+codex plugin marketplace add warpmetal/agent-kit --ref main
+codex plugin add warpmetal@warpmetal
+```
+
+Run the plugin-specific repository checks with:
+
+```sh
+npm run plugin:check
+```
+
+Public submission materials, reviewer cases, and the owner checklist live in
+`submission/openai`. Public publication happens through the OpenAI Platform;
+the repo marketplace is only for development, testing, and direct distribution.
 
 ## First commands
 
