@@ -19,7 +19,7 @@ files or pass a WarpMetal credential to `x402api`.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.2`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.3`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -91,7 +91,7 @@ Use this structure when asking a human to fund the wallet:
 > wallet `<payer-wallet-address>`. Token contract/mint: `<asset-identifier>`.
 > Send the token to the payer wallet address, not to the token contract/mint and
 > not to WarpMetal's payment recipient. Do not send ETH or SOL; the network fee
-> is sponsored.
+> is paid by x402api from its platform treasury.
 
 ## Exact purchase workflow
 
@@ -127,6 +127,12 @@ Choose only a term marked `agentWalletSupported: true`,
 launch profiles are sponsored Base USDC and sponsored Solana USDC/USDT, bound
 by the strict `com.x402api.gas-sponsorship` extension. Stop on an expired gas
 reservation or any buyer-funded, unsupported, or unbound alternative.
+
+x402api pays actual gas from its platform treasury. The merchant tenant's
+active sponsorship allowance controls admission, but actual gas is not a
+tenant debit. During the coordinated rollout, accept only the exact 0.2.3
+platform-treasury declaration or the matched legacy tenant-credit declaration;
+never accept a mixed billing and final-charge policy.
 
 Among valid sponsored terms, honor an explicit task or operator network and
 asset preference. Otherwise prefer a compatible wallet that is already
@@ -168,6 +174,12 @@ current `termEndsAt` generation are different.
   challenge flow again, inspect the replacement terms, and authorize one new
   artifact only when the protocol and current interactive or autonomous
   payment authority allow it.
+- `sponsorship_allowance_unavailable`, `sponsorship_payment_cap_exceeded`,
+  `sponsorship_payment_allowance_exhausted`,
+  `sponsorship_volume_allowance_exhausted`, or
+  `sponsorship_gas_budget_exhausted`: the wallet treats the authorization as
+  terminal. The merchant tenant must restore or change its allowance and issue
+  a fresh challenge; never retry the artifact or fall back to buyer-funded gas.
 - `manual_review`: payment or fulfillment may be final. Stop all payment and
   mutation retries.
 - Expired or corrupt artifact, changed request digest, unexpected recipient,

@@ -62,12 +62,16 @@ private WarpMetal state directory. An explicit output path must not already
 contain different content. `challengeHandle` is intentionally absent from the
 wallet envelope: it is neither a buyer payment identifier nor signing input.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.2`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.3`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
-WarpMetal rejects a challenge with no compatible sponsored term. Because the
-checkout is authenticated, do not substitute `x402api pay`, `payment submit`,
-or `payment reconcile` for the returned WarpMetal submission command.
+For the current declaration, x402api pays actual gas from its platform treasury
+while the merchant tenant's allowance controls sponsorship admission. WarpMetal
+retains the matched legacy tenant-credit declaration during rollout and rejects
+mixed policy pairs. WarpMetal rejects a challenge with no compatible sponsored
+term. Because the checkout is authenticated, do not substitute `x402api pay`,
+`payment submit`, or `payment reconcile` for the returned WarpMetal submission
+command.
 
 `--payment-artifact` accepts the owner-only JSON artifact produced by a
 compatible pinned x402api Agent Wallet release. WarpMetal validates its request

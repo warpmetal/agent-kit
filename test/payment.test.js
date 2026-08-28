@@ -31,7 +31,7 @@ test("renewal payment workflow hands the exact artifact back to WarpMetal", () =
     "--wait",
     "--json",
   ]);
-  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.2");
+  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.3");
   assert.equal(workflow.signerNodeRequirement, ">=22");
 });
 
@@ -97,10 +97,10 @@ const extensions = {
         },
       ],
       buyerNativeFeeRequired: false,
-      billingParty: "tenant_service_credit",
+      billingParty: "platform_treasury",
       maximumReservationEvidenceDigest: `sha256:${"5".repeat(64)}`,
       expiresAt: "2099-01-01T00:00:00.000Z",
-      finalChargePolicy: "canonical_actual_gas_capped_by_reservation",
+      finalChargePolicy: "platform_treasury_actual_cost",
     },
     schema: {
       $id: "urn:com:x402api:gas-sponsorship:v1",
@@ -176,6 +176,56 @@ test("payment request envelope matches the x402api canonical contract", () => {
   assert.equal(value.terms[0].network, "eip155:8453");
   assert.equal(value.terms[0].agentWalletSupported, true);
   assert.equal(value.terms[0].buyerNativeFeeRequired, false);
+});
+
+test("payment request envelopes retain matched legacy sponsorship compatibility", () => {
+  const legacy = JSON.parse(
+    JSON.stringify(
+      paymentChallenge("https://api.warpmetal.test/checkout/standard"),
+    ),
+  );
+  const sponsorship = legacy.extensions["com.x402api.gas-sponsorship"].info;
+  sponsorship.billingParty = "tenant_service_credit";
+  sponsorship.finalChargePolicy =
+    "canonical_actual_gas_capped_by_reservation";
+  const value = createPaymentRequestEnvelope({
+    baseUrl: "https://api.warpmetal.test",
+    checkoutPath: "/checkout/standard",
+    checkoutBody: '{"taskId":"task_payment"}',
+    paymentRequired: Buffer.from(JSON.stringify(legacy)).toString("base64"),
+    merchantReference: "task_payment",
+  });
+  assert.equal(value.terms[0].agentWalletSupported, true);
+});
+
+test("payment request envelopes reject mixed sponsorship policies", () => {
+  const policies = [
+    ["platform_treasury", "canonical_actual_gas_capped_by_reservation"],
+    ["tenant_service_credit", "platform_treasury_actual_cost"],
+  ];
+  for (const [billingParty, finalChargePolicy] of policies) {
+    const mixed = JSON.parse(
+      JSON.stringify(
+        paymentChallenge("https://api.warpmetal.test/checkout/standard"),
+      ),
+    );
+    const sponsorship = mixed.extensions["com.x402api.gas-sponsorship"].info;
+    sponsorship.billingParty = billingParty;
+    sponsorship.finalChargePolicy = finalChargePolicy;
+    assert.throws(
+      () =>
+        createPaymentRequestEnvelope({
+          baseUrl: "https://api.warpmetal.test",
+          checkoutPath: "/checkout/standard",
+          checkoutBody: '{"taskId":"task_payment"}',
+          paymentRequired: Buffer.from(JSON.stringify(mixed)).toString(
+            "base64",
+          ),
+          merchantReference: "task_payment",
+        }),
+      /gas-sponsorship extension is malformed/,
+    );
+  }
 });
 
 test("payment artifacts must be private and bound to the exact request", async () => {
@@ -301,6 +351,6 @@ test("payment request envelopes reject historical buyer-funded profiles", () => 
         ),
         merchantReference: "task_payment",
       }),
-    /@x402api\/agent-wallet-cli@0\.2\.2/,
+    /@x402api\/agent-wallet-cli@0\.2\.3/,
   );
 });

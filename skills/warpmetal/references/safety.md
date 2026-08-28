@@ -110,6 +110,13 @@ Confirm the plan, hostname, OS, and public key before preparing it.
 - A signed HTTP 402 rejects that signature. Use the new live challenge for one
   replacement authorization after checking the new terms against the current
   interactive or autonomous payment authority.
+- Treat `sponsorship_allowance_unavailable`,
+  `sponsorship_payment_cap_exceeded`,
+  `sponsorship_payment_allowance_exhausted`,
+  `sponsorship_volume_allowance_exhausted`, and
+  `sponsorship_gas_budget_exhausted` as terminal for the current authorization.
+  Require the merchant tenant to restore or change its sponsorship allowance
+  and issue a fresh challenge; never switch to buyer-funded gas.
 - On timeout or restart after wallet authorization, reuse the saved x402api
   attempt and artifact through WarpMetal. Never authorize again merely because
   submission or fulfillment is uncertain, and never send the private owner
