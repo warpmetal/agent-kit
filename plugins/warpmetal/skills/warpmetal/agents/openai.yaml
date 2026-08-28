@@ -1,0 +1,4 @@
+interface:
+  display_name: "WarpMetal VPS"
+  short_description: "Purchase, renew, and manage WarpMetal compute"
+  default_prompt: "Use $warpmetal to purchase or renew a VPS with a dedicated SSH identity, bounded x402 payment policy, and safe lifecycle management."

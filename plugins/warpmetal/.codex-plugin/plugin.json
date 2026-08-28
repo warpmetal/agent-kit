@@ -1,0 +1,41 @@
+{
+  "name": "warpmetal",
+  "version": "0.1.0",
+  "description": "Safely purchase, renew, and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official CLI.",
+  "author": {
+    "name": "WarpMetal",
+    "url": "https://warpmetal.com"
+  },
+  "homepage": "https://warpmetal.com/codex-vps",
+  "repository": "https://github.com/warpmetal/agent-kit",
+  "keywords": [
+    "vps",
+    "agents",
+    "infrastructure",
+    "x402",
+    "ssh"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "WarpMetal",
+    "shortDescription": "Purchase and manage agent-ready VPS safely",
+    "longDescription": "Use the official WarpMetal CLI to discover live VPS inventory, prepare orders with dedicated SSH identities, authorize bounded x402 payments, renew service, manage servers, and operate isolated Agent Runtime sandboxes.",
+    "developerName": "WarpMetal",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "websiteURL": "https://warpmetal.com",
+    "privacyPolicyURL": "https://warpmetal.com/legal#privacy",
+    "termsOfServiceURL": "https://warpmetal.com/legal",
+    "defaultPrompt": [
+      "Show me the live WarpMetal VPS catalog.",
+      "Prepare a WarpMetal VPS for this project.",
+      "Which WarpMetal plans support Agent Runtime?"
+    ],
+    "brandColor": "#F4511E",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/logo.png"
+  }
+}
