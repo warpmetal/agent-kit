@@ -16,10 +16,16 @@ The separate x402api Agent Wallet owns encrypted network keys, balance checks,
 payment authorization, and durable payment attempts. Never merge their state
 files or pass a WarpMetal credential to `x402api`.
 
+The CLI includes the matching `@x402api/agent-wallet-core` SDK. That SDK is the
+authoritative buyer-side parser and signer contract. WarpMetal retains its own
+merchant-side validation because the backend is Python and additionally binds
+the challenge to WarpMetal's exact resource, amount, recipient, and receipt
+contract.
+
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.3`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.4`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -130,7 +136,7 @@ reservation or any buyer-funded, unsupported, or unbound alternative.
 
 x402api pays actual gas from its platform treasury. The merchant tenant's
 active sponsorship allowance controls admission, but actual gas is not a
-tenant debit. During the coordinated rollout, accept only the exact 0.2.3
+tenant debit. During the coordinated rollout, accept only the exact 0.2.4
 platform-treasury declaration or the matched legacy tenant-credit declaration;
 never accept a mixed billing and final-charge policy.
 
