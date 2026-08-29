@@ -34,7 +34,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.3
+npm install --global @x402api/agent-wallet-cli@0.2.4
 x402api help --json
 ```
 

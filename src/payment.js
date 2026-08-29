@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.3";
+export const AGENT_WALLET_VERSION = "0.2.4";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -183,6 +183,9 @@ function paymentResource(value, label) {
 function validateGasSponsorship(declaration) {
   const info = declaration.info;
   const schema = declaration.schema;
+  // Mirror @x402api/agent-wallet-core: platform treasury is canonical, the
+  // matched tenant-credit pair remains rollout-compatible, and mixed pairs
+  // must fail closed.
   const platformTreasuryPolicy =
     isObject(info) &&
     info.billingParty === "platform_treasury" &&
