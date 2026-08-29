@@ -46,6 +46,10 @@
 - Install only the exact `@x402api/agent-wallet-cli` version and matching
   bundled `x402api-pay` skill reported by WarpMetal. Never substitute an
   unpinned repository checkout or similarly named wallet package.
+- Let `x402api wallet setup` create and permission its managed unlock file.
+  `X402API_WALLET_PASSWORD_FILE` belongs to x402api only as an optional
+  externally managed override; WarpMetal must never create, read, or receive
+  it. Stop if x402api rejects unsafe ownership or permissions.
 - Never read or display an x402api password file, encrypted keystore, request
   envelope, payment artifact, or complete payment signature. Pass only their
   paths to the documented commands.
@@ -61,7 +65,7 @@ explicit approval immediately before:
 - installing the CLI or skill;
 - installing or repairing the Agent Runtime supervisor;
 - generating a new SSH key pair;
-- creating or funding a wallet;
+- creating a wallet or asking the human to transfer funds to it;
 - signing or submitting an x402 payment authorization;
 - booting, rebooting, or shutting down a server; and
 - creating a temporary sandbox after explaining its irreversible expiry;

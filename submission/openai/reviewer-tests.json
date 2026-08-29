@@ -48,6 +48,20 @@
       "fixtures": "A prepared unpaid task ID supplied by the reviewer harness, or a task prepared with the previous case in the same reviewer-owned WARPMETAL_HOME. No funded wallet is required."
     },
     {
+      "name": "Guide first-time wallet onboarding without payment",
+      "prompt": "Guide me through setting up a dedicated wallet for the prepared WarpMetal task and show exactly how I would fund it, but stop before I transfer funds, authorize, or submit payment.",
+      "expectedBehavior": [
+        "Run `warpmetal checkout challenge --task <taskId> --json` and use only its returned payment workflow.",
+        "Install or upgrade only after approval, using the exact pinned wallet package; then run `x402api wallet setup --json` and `x402api wallet list --json`.",
+        "Explain that setup owns the managed unlock file and never ask to read or expose `X402API_WALLET_PASSWORD_FILE`.",
+        "After explicit approval, create at most one dedicated wallet with the exact returned network and payment ceiling when no compatible wallet exists.",
+        "Run the returned address, exact-asset balance, and funding argv; show the public payer address, QR payload, exact network, asset, target, and deficit.",
+        "Do not transfer funds, open private files, authorize a payment, or submit checkout."
+      ],
+      "expectedResultShape": "A first-run wallet readiness and funding guide whose commands preserve one advertised network/asset pair, with an explicit statement that no payment was authorized or submitted.",
+      "fixtures": "A prepared unpaid task, Node.js 22, WarpMetal CLI 0.7.4, and x402api Agent Wallet 0.2.5. Use a fresh reviewer-owned X402API_HOME and do not provide live funds."
+    },
+    {
       "name": "Agent Runtime capacity discovery",
       "prompt": "Which live WarpMetal plans and operating systems support Agent Runtime, and what sandbox sizes are available? Do not create anything.",
       "expectedBehavior": [

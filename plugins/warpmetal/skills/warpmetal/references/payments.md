@@ -25,7 +25,7 @@ contract.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.4`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.5`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -40,9 +40,15 @@ skill automatically.
 1. Install the exact `paymentWorkflow.signerPackage.install.argv` under Node
    22. Run `command -v x402api` and the returned
    `paymentWorkflow.signerContract.probe.argv`. Require contract version 1.
-2. Ensure an operator configured `X402API_WALLET_PASSWORD_FILE` as an owner-only
-   file, or is supervising `--password-stdin`. Never read either value.
-3. Use `x402api wallet list --json` and reuse a dedicated persistent wallet for
+2. Run the exact `paymentWorkflow.walletWorkflow.setup.argv`. The idempotent
+   `x402api wallet setup --json` command creates an owner-only managed unlock
+   file inside the x402api home directory and never prints its generated
+   passphrase. `X402API_WALLET_PASSWORD_FILE` is an optional x402api override
+   for an externally managed password file; it is not a WarpMetal setting.
+   Never create it on WarpMetal's behalf, read it, or pass it to WarpMetal. A
+   supervised operator may instead use `--password-stdin` where supported.
+3. Run the exact `paymentWorkflow.walletWorkflow.list.argv` and reuse a
+   dedicated persistent wallet for
    the exact challenge network.
 4. In an interactive conversation, create a wallet only with explicit
    approval. In an unattended run, create one only when the automation policy
@@ -63,13 +69,20 @@ skill automatically.
    higher than the task or operator limit. If an existing wallet has no ceiling
    or an unsuitable one, do not treat its full balance as bounded authority;
    use a suitably capped dedicated wallet or stop.
-5. Use both public, safe commands before requesting funding:
+5. Use the returned public address, exact asset-balance, and funding commands:
 
    ```sh
    x402api wallet address --wallet <name> --json
-   x402api wallet balance --wallet <name> --json
+   x402api wallet balance --wallet <name> \
+     --asset <exact-challenge-asset> --json
+   x402api wallet funding --wallet <name> \
+     --asset <exact-challenge-asset> \
+     --target-balance-atomic <required-or-policy-target> --json
    ```
 
+   Use only the selected term's returned argv; do not combine one network with
+   another term's asset. The funding result provides the current balance,
+   target, exact deficit, payer address, and QR payload without moving funds.
 6. If funding is short in an interactive conversation, show the exact deficit
    in normal token units and atomic units, the exact network, token symbol and
    contract/mint, and the payer wallet's public receiving address. Render only
@@ -136,7 +149,7 @@ reservation or any buyer-funded, unsupported, or unbound alternative.
 
 x402api pays actual gas from its platform treasury. The merchant tenant's
 active sponsorship allowance controls admission, but actual gas is not a
-tenant debit. During the coordinated rollout, accept only the exact 0.2.4
+tenant debit. During the coordinated rollout, accept only the exact 0.2.5
 platform-treasury declaration or the matched legacy tenant-credit declaration;
 never accept a mixed billing and final-charge policy.
 

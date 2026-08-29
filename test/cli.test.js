@@ -280,11 +280,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.4",
-      spec: "@x402api/agent-wallet-cli@0.2.4",
+      version: "0.2.5",
+      spec: "@x402api/agent-wallet-cli@0.2.5",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.4"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.5"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
@@ -292,6 +292,41 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       "help",
       "--json",
     ]);
+    assert.deepEqual(challenge.paymentWorkflow.walletWorkflow.setup.argv, [
+      "x402api",
+      "wallet",
+      "setup",
+      "--json",
+    ]);
+    assert.deepEqual(challenge.paymentWorkflow.sequence, [
+      "wallet_setup",
+      "wallet_list",
+      "wallet_create_if_needed",
+      "wallet_address_balance_funding",
+      "payment_authorize",
+      "warpmetal_submit",
+    ]);
+    assert.deepEqual(challenge.paymentWorkflow.walletWorkflow.list.argv, [
+      "x402api",
+      "wallet",
+      "list",
+      "--json",
+    ]);
+    assert.deepEqual(
+      challenge.paymentWorkflow.walletWorkflow.createOptions[0].argv,
+      [
+        "x402api",
+        "wallet",
+        "create",
+        "--name",
+        "<wallet-name>",
+        "--network",
+        "eip155:8453",
+        "--maximum-payment-atomic",
+        "20000000",
+        "--json",
+      ],
+    );
     assert.deepEqual(challenge.paymentWorkflow.authorize.argv.slice(0, 3), [
       "x402api",
       "payment",
@@ -303,6 +338,18 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       "address",
       "--wallet",
       "<wallet-name>",
+      "--json",
+    ]);
+    assert.deepEqual(challenge.paymentWorkflow.fundingWorkflow.funding.argv, [
+      "x402api",
+      "wallet",
+      "funding",
+      "--wallet",
+      "<wallet-name>",
+      "--asset",
+      "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "--target-balance-atomic",
+      "20000000",
       "--json",
     ]);
     assert.equal(challenge.paymentWorkflow.fundingWorkflow.presentation.showQr, true);
@@ -534,6 +581,84 @@ test("checkout challenge fails closed without the x402api challenge handle", asy
   }
 });
 
+test("checkout challenge guides a human through wallet onboarding before authorization", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-wallet-guide-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_wallet_guide",
+          serverId: "server_wallet_guide",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "owner_wallet_guide",
+      },
+      '{"taskId":"task_wallet_guide"}',
+    );
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_wallet_guide",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        cwd: directory,
+        fetchImpl: async () =>
+          jsonResponse(
+            402,
+            { status: "payment_required", paymentAttemptId: "payment_wallet_guide" },
+            {
+              "payment-required": paymentRequiredHeader,
+              "x-x402api-challenge-handle": "charge_wallet_guide",
+            },
+          ),
+      },
+    );
+
+    assert.equal(exitCode, 7, stderr.value());
+    assert.equal(stderr.value(), "");
+    const output = stdout.value();
+    const setupAt = output.indexOf("x402api wallet setup --json");
+    const listAt = output.indexOf("x402api wallet list --json");
+    const createAt = output.indexOf("x402api wallet create --name");
+    const addressAt = output.indexOf("x402api wallet address --wallet");
+    const balanceAt = output.indexOf("x402api wallet balance --wallet");
+    const fundingAt = output.indexOf("x402api wallet funding --wallet");
+    const authorizeAt = output.indexOf("x402api payment authorize --wallet");
+    const submitAt = output.indexOf("warpmetal checkout submit --task");
+    assert.ok(
+      [setupAt, listAt, createAt, addressAt, balanceAt, fundingAt, authorizeAt, submitAt]
+        .every((index) => index >= 0),
+      output,
+    );
+    assert.deepEqual(
+      [setupAt, listAt, createAt, addressAt, balanceAt, fundingAt, authorizeAt, submitAt],
+      [...[setupAt, listAt, createAt, addressAt, balanceAt, fundingAt, authorizeAt, submitAt]].sort(
+        (left, right) => left - right,
+      ),
+    );
+    assert.match(output, /--network eip155:8453/);
+    assert.match(output, new RegExp(`--asset ${paymentRequirement.asset}`));
+    assert.match(output, /--target-balance-atomic 20000000/);
+    assert.equal(output.includes("owner_wallet_guide"), false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("power changes require the same explicit confirmation", async () => {
   const stdout = capture();
   const stderr = capture();
@@ -713,6 +838,21 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     assert.equal(
       output.results[0].paymentWorkflow.fundingWorkflow.targetBalanceAtomic,
       "30000000",
+    );
+    assert.deepEqual(
+      output.results[0].paymentWorkflow.fundingWorkflow.funding.argv,
+      [
+        "x402api",
+        "wallet",
+        "funding",
+        "--wallet",
+        "renewal-wallet",
+        "--asset",
+        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "--target-balance-atomic",
+        "30000000",
+        "--json",
+      ],
     );
 
     notificationsVerified = false;

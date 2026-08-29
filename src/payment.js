@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.4";
+export const AGENT_WALLET_VERSION = "0.2.5";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -707,10 +707,75 @@ export function paymentWorkflow({
   serverId,
   kind = "checkout",
   wallet = "<wallet-name>",
+  terms = [],
+  fundingTargetAtomic,
   requestEnvelopePath,
   paymentArtifactPath,
 }) {
+  const walletOptions = terms
+    .filter((term) => term?.agentWalletSupported)
+    .map((term) => {
+      const targetBalanceAtomic = fundingTargetAtomic || term.amountAtomic;
+      return {
+        network: term.network,
+        asset: term.asset,
+        requiredPaymentAtomic: term.amountAtomic,
+        targetBalanceAtomic,
+        create: {
+          argv: [
+            "x402api",
+            "wallet",
+            "create",
+            "--name",
+            "<wallet-name>",
+            "--network",
+            term.network,
+            "--maximum-payment-atomic",
+            term.amountAtomic,
+            "--json",
+          ],
+        },
+        address: {
+          argv: ["x402api", "wallet", "address", "--wallet", wallet, "--json"],
+        },
+        balance: {
+          argv: [
+            "x402api",
+            "wallet",
+            "balance",
+            "--wallet",
+            wallet,
+            "--asset",
+            term.asset,
+            "--json",
+          ],
+        },
+        funding: {
+          argv: [
+            "x402api",
+            "wallet",
+            "funding",
+            "--wallet",
+            wallet,
+            "--asset",
+            term.asset,
+            "--target-balance-atomic",
+            targetBalanceAtomic,
+            "--json",
+          ],
+        },
+      };
+    });
+  const selectedFunding = walletOptions.length === 1 ? walletOptions[0] : null;
   return {
+    sequence: [
+      "wallet_setup",
+      "wallet_list",
+      "wallet_create_if_needed",
+      "wallet_address_balance_funding",
+      "payment_authorize",
+      "warpmetal_submit",
+    ],
     signer: "x402api Agent Wallet",
     signerExecutable: "x402api",
     signerNodeRequirement: ">=22",
@@ -742,6 +807,28 @@ export function paymentWorkflow({
         ],
       },
     },
+    walletWorkflow: {
+      sequence: [
+        "setup",
+        "list",
+        "create_if_needed",
+        "address",
+        "balance",
+        "fund_if_needed",
+      ],
+      setup: { argv: ["x402api", "wallet", "setup", "--json"] },
+      list: { argv: ["x402api", "wallet", "list", "--json"] },
+      createOptions: walletOptions.map(
+        ({ network, asset, requiredPaymentAtomic, create }) => ({
+          network,
+          asset,
+          requiredPaymentAtomic,
+          ...create,
+        }),
+      ),
+      selection:
+        "Reuse a compatible capped wallet when available. Otherwise choose exactly one advertised option and replace only <wallet-name>.",
+    },
     requestEnvelopePath,
     paymentArtifactPath,
     authorize: {
@@ -766,8 +853,62 @@ export function paymentWorkflow({
         argv: ["x402api", "wallet", "address", "--wallet", wallet, "--json"],
       },
       balance: {
-        argv: ["x402api", "wallet", "balance", "--wallet", wallet, "--json"],
+        argv:
+          selectedFunding?.balance.argv ||
+          [
+            "x402api",
+            "wallet",
+            "balance",
+            "--wallet",
+            wallet,
+            "--asset",
+            "<asset-from-selected-term>",
+            "--json",
+          ],
       },
+      funding: {
+        argv:
+          selectedFunding?.funding.argv ||
+          [
+            "x402api",
+            "wallet",
+            "funding",
+            "--wallet",
+            wallet,
+            "--asset",
+            "<asset-from-selected-term>",
+            "--target-balance-atomic",
+            "<target-balance-atomic>",
+            "--json",
+          ],
+      },
+      options: walletOptions.map(
+        ({
+          network,
+          asset,
+          requiredPaymentAtomic,
+          targetBalanceAtomic,
+          address,
+          balance,
+          funding,
+        }) => ({
+          network,
+          asset,
+          requiredPaymentAtomic,
+          targetBalanceAtomic,
+          address,
+          balance,
+          funding,
+        }),
+      ),
+      ...(selectedFunding
+        ? {
+            network: selectedFunding.network,
+            asset: selectedFunding.asset,
+            requiredPaymentAtomic: selectedFunding.requiredPaymentAtomic,
+            targetBalanceAtomic: selectedFunding.targetBalanceAtomic,
+          }
+        : {}),
       presentation: {
         qrPayloadField: "address",
         textPayloadField: "address",
@@ -777,7 +918,7 @@ export function paymentWorkflow({
         showNetworkAndAsset: true,
       },
       safety:
-        "Encode and fund only the payer wallet public address. Never fund the token contract, mint, or WarpMetal merchant recipient; sponsored payments do not require ETH or SOL.",
+        "Run the exact selected funding argv. Encode and fund only its payer wallet public address. Never fund the token contract, mint, or WarpMetal merchant recipient; sponsored payments do not require ETH or SOL.",
     },
     submit: {
       argv:

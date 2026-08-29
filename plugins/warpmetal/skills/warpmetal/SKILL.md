@@ -11,20 +11,20 @@ with ad hoc HTTP commands.
 
 ## Start safely
 
-1. Run `warpmetal --version` and require version `0.7.3` or newer for this
+1. Run `warpmetal --version` and require version `0.7.4` or newer for this
    plugin. If it is missing or older, explain the compatibility requirement,
    ask before installing or upgrading software, and use only the official npm
    package from `https://www.npmjs.com/package/warpmetal`.
-3. Use `--json` for every agent-driven command.
-4. Read [references/safety.md](references/safety.md) before preparing an order,
+2. Use `--json` for every agent-driven command.
+3. Read [references/safety.md](references/safety.md) before preparing an order,
    authorizing payment, using an SSH identity, or changing a server.
-5. Read [references/cli-reference.md](references/cli-reference.md) when choosing
+4. Read [references/cli-reference.md](references/cli-reference.md) when choosing
    a command or interpreting an exit code.
-6. Read [references/payments.md](references/payments.md) before creating or
+5. Read [references/payments.md](references/payments.md) before creating or
    funding a wallet, authorizing payment, or resolving an ambiguous attempt.
-7. Read [references/runtime.md](references/runtime.md) before requesting,
+6. Read [references/runtime.md](references/runtime.md) before requesting,
    installing, accessing, expiring, or deleting Agent Runtime sandboxes.
-8. Read [references/renewals.md](references/renewals.md) before configuring or
+7. Read [references/renewals.md](references/renewals.md) before configuring or
    executing an autonomous renewal or requesting a wallet refill.
 
 Never read, print, summarize, upload, or commit the WarpMetal state file,
@@ -99,8 +99,12 @@ when the exact live terms fit those limits.
 
 Follow [references/payments.md](references/payments.md) to install the exact
 `paymentWorkflow.signerPackage.spec`, verify the V1 machine contract, install
-its matching `x402api-pay` skill, and select or fund a dedicated
-network-specific wallet. Require `agentWalletSupported: true`,
+its matching `x402api-pay` skill, and invoke the returned wallet sequence:
+`wallet setup`, `wallet list`, network-specific `wallet create` only if needed,
+then the exact address, asset-balance, and funding commands. `wallet setup`
+owns the managed unlock file; `X402API_WALLET_PASSWORD_FILE` is only an
+optional x402api override and is never a WarpMetal input. Require
+`agentWalletSupported: true`,
 `sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false` on the chosen
 live term. Never fall back to a historical buyer-funded or TRON profile.
 Honor an explicit task or operator network and asset preference. Otherwise use

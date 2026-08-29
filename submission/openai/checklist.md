@@ -7,11 +7,12 @@
 - [x] Bundled skill matches the authoritative `skills/warpmetal` source.
 - [x] Local repo marketplace is installed and the plugin is enabled in Codex.
 - [ ] A new Codex task triggers the plugin for each starter prompt.
-- [x] CLI version is `0.7.3` and the full suite passes on Node.js 20 and 22.
+- [x] CLI version is `0.7.4` and the full suite passes on Node.js 20 and 22.
 - [x] The public plugin remains skills-only; its automated test rejects bundled
   `bin/` or `src/` code and requires an exact copy of the reviewed skill.
 - [x] The companion CLI changes for expired unsigned challenge replacement,
-  Agent Wallet 0.2.4 sponsorship policy, safe funding instructions, and
+  Agent Wallet 0.2.5 managed wallet setup, sponsorship policy, exact
+  asset-specific funding instructions, and
   verified refill notifications are covered by tests.
 - [x] Live health reported `purchasingReady: true` on 2026-08-27.
 - [ ] Recheck live health immediately before reviewer purchase-flow testing.
@@ -31,7 +32,7 @@
 - [ ] The submitter has `Apps Management: Write` permission.
 - [ ] A new `Skills only` plugin draft exists in the submission portal.
 - [ ] The final skill bundle is uploaded and passes automated scanning.
-- [ ] Five positive and three negative reviewer cases are entered.
+- [ ] Six positive and three negative reviewer cases are entered.
 - [ ] Policy attestations are reviewed by an authorized WarpMetal owner.
 - [ ] The owner selects `Submit for Review`.
 
