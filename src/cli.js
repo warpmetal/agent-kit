@@ -147,6 +147,22 @@ function shellCommand(argv) {
     .join(" ");
 }
 
+function walletWorkflowInstructions(workflow) {
+  const create = workflow.walletWorkflow.createOptions
+    .map(
+      (option) =>
+        `${option.network} ${option.asset}: ${shellCommand(option.argv)}`,
+    )
+    .join("\n");
+  const balanceAndFunding = workflow.fundingWorkflow.options
+    .map(
+      (option) =>
+        `${option.network} ${option.asset}:\n  Balance: ${shellCommand(option.balance.argv)}\n  Funding: ${shellCommand(option.funding.argv)}`,
+    )
+    .join("\n");
+  return `Wallet setup: ${shellCommand(workflow.walletWorkflow.setup.argv)}\nWallet list: ${shellCommand(workflow.walletWorkflow.list.argv)}\nCreate a compatible wallet only if needed:\n${create}\nCheck the selected wallet address: ${shellCommand(workflow.fundingWorkflow.address.argv)}\nCheck or fund the exact selected asset:\n${balanceAndFunding}`;
+}
+
 function emit(stream, value, json, human) {
   if (json) writeLine(stream, JSON.stringify(value, null, 2));
   else writeLine(stream, human);
@@ -413,6 +429,7 @@ async function attachPaymentWorkflow(
   );
   const workflow = paymentWorkflow({
     taskId,
+    terms: request.terms,
     requestEnvelopePath,
     paymentArtifactPath: defaults.paymentArtifactPath,
   });
@@ -653,7 +670,7 @@ async function handleCheckoutChallenge(client, store, options, context) {
     stringOption(options, "request-envelope-out"),
   );
   const paymentInstructions = safe.paymentWorkflow
-    ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nIf funding is short, run ${shellCommand(safe.paymentWorkflow.fundingWorkflow.address.argv)} and ${shellCommand(safe.paymentWorkflow.fundingWorkflow.balance.argv)}, then show the payer address as both a QR code and copyable text.\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
+    ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\n${walletWorkflowInstructions(safe.paymentWorkflow)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize only after selecting/funding one wallet: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
     : "";
   emit(
     context.stdout,
@@ -1040,24 +1057,20 @@ async function attachRenewalPaymentWorkflow(
     requestedEnvelopePath || defaults.requestEnvelopePath,
     request.envelope,
   );
-  const workflow = paymentWorkflow({
-    taskId: server.id,
-    serverId,
-    kind: "renewal",
-    wallet: renewal.wallet,
-    requestEnvelopePath,
-    paymentArtifactPath: defaults.paymentArtifactPath,
-  });
   const refillTarget =
     renewal.refillTargetAtomic &&
     BigInt(renewal.refillTargetAtomic) >= BigInt(term.amountAtomic)
       ? renewal.refillTargetAtomic
       : term.amountAtomic;
-  Object.assign(workflow.fundingWorkflow, {
-    network: term.network,
-    asset: term.asset,
-    requiredPaymentAtomic: term.amountAtomic,
-    targetBalanceAtomic: refillTarget,
+  const workflow = paymentWorkflow({
+    taskId: server.id,
+    serverId,
+    kind: "renewal",
+    wallet: renewal.wallet,
+    terms: [term],
+    fundingTargetAtomic: refillTarget,
+    requestEnvelopePath,
+    paymentArtifactPath: defaults.paymentArtifactPath,
   });
   const refillNotification = refillNotificationState(
     notifications,
@@ -1191,7 +1204,7 @@ async function handleRenewalPrepare(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const safe = await prepareRenewal(client, store, serverId, options, context);
   const fundingInstructions = safe.paymentWorkflow
-    ? `\nIf funding is short, run ${shellCommand(safe.paymentWorkflow.fundingWorkflow.address.argv)} and ${shellCommand(safe.paymentWorkflow.fundingWorkflow.balance.argv)}. Show the returned payer address as both a QR code and copyable text, with the exact network, asset, and deficit.`
+    ? `\n${walletWorkflowInstructions(safe.paymentWorkflow)}. Show the returned payer address as both a QR code and copyable text, with the exact network, asset, and deficit.`
     : "";
   const refillInstructions = safe.refillWorkflow
     ? `\nFor verified email refill, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}`

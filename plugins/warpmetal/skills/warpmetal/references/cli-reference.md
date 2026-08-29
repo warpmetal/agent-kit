@@ -56,8 +56,11 @@ On HTTP 402, `checkout challenge` validates and displays exact payment terms,
 writes the opaque x402api `challengeHandle` to private WarpMetal state for
 merchant reconciliation, and writes a credential-free x402api V1 request envelope with owner-only
 permissions, and returns the exact pinned wallet package, V1 contract probe,
-matching wallet-skill install, authorization, and WarpMetal submission argv
-arrays. The default envelope and suggested artifact paths live under the
+matching wallet-skill install, setup, list, network-specific create,
+address/balance/funding, authorization, and WarpMetal submission argv arrays.
+The returned top-level `paymentWorkflow.sequence` fixes their order. Funding
+options remain paired by exact live network and asset. The default envelope and
+suggested artifact paths live under the
 private WarpMetal state directory. An explicit output path must not already
 contain different content. `challengeHandle` is intentionally absent from the
 wallet envelope: it is neither a buyer payment identifier nor signing input.
@@ -66,7 +69,7 @@ retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
 saved challenge and stale wallet-attempt metadata; use only the newly returned
 workflow.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.4`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.5`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
 For the current declaration, x402api pays actual gas from its platform treasury

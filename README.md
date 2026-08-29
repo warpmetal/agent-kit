@@ -34,7 +34,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.4
+npm install --global @x402api/agent-wallet-cli@0.2.5
 x402api help --json
 ```
 
@@ -58,7 +58,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.7.3 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.7.4 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 
@@ -116,8 +116,8 @@ that WarpMetal uses for merchant-side reconciliation, the pinned
 `paymentWorkflow`. It also writes an owner-only request envelope that contains
 the exact checkout URL and body but no WarpMetal credential or challenge
 handle. The handle is not a buyer payment identifier and is never a wallet
-signing input. The published
-launch wallet accepts sponsored Base USDC and sponsored Solana USDC/USDT only;
+signing input. The published launch wallet accepts sponsored Base USDC and
+sponsored Solana USDC/USDT only;
 the returned terms identify compatible alternatives and confirm that the buyer
 does not need ETH or SOL. x402api pays the actual network fee from its platform
 treasury; the merchant tenant's active allowance controls sponsorship
@@ -131,7 +131,31 @@ context:
   limits. When the live terms fit those limits, authorize and submit without
   waiting for conversational approval.
 
-Then invoke the returned authorization argv with a dedicated wallet name:
+Follow the returned commands in order. `wallet setup` creates an owner-only,
+managed unlock file inside the x402api home directory and is safe to repeat;
+it never prints the generated passphrase. `X402API_WALLET_PASSWORD_FILE` is an
+optional x402api override for an externally managed password file. It is not a
+WarpMetal variable, and WarpMetal does not create, read, or receive that file.
+
+```sh
+x402api wallet setup --json
+x402api wallet list --json
+x402api wallet create --name <wallet-name> \
+  --network <exact-challenge-network> \
+  --maximum-payment-atomic <exact-live-amount> --json
+x402api wallet address --wallet <wallet-name> --json
+x402api wallet balance --wallet <wallet-name> \
+  --asset <exact-challenge-asset> --json
+x402api wallet funding --wallet <wallet-name> \
+  --asset <exact-challenge-asset> \
+  --target-balance-atomic <exact-live-amount> --json
+```
+
+Create a wallet only when no compatible dedicated wallet exists. The funding
+command reports the public payer address, QR payload, current balance, target,
+and exact deficit in atomic and normal six-decimal units. After the selected
+wallet is sufficiently funded, invoke the returned authorization and WarpMetal
+submission argv:
 
 ```sh
 x402api payment authorize \
@@ -145,23 +169,6 @@ warpmetal checkout submit \
   --payment-artifact <owner-only-artifact-path> \
   --wait \
   --json
-```
-
-Check the payer wallet address and balance with:
-
-```sh
-x402api wallet show --wallet <wallet-name> --json
-x402api wallet address --wallet <wallet-name> --json
-x402api wallet balance --wallet <wallet-name> --json
-```
-
-For a new dedicated wallet, configure the enforceable local per-payment
-ceiling when it is created:
-
-```sh
-x402api wallet create --name <wallet-name> \
-  --network <exact-challenge-network> \
-  --maximum-payment-atomic <per-payment-policy-cap> --json
 ```
 
 Require `maximumPaymentAtomic` to cover the live charge without exceeding the

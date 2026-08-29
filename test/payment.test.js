@@ -17,6 +17,16 @@ test("renewal payment workflow hands the exact artifact back to WarpMetal", () =
     taskId: "task_renewal",
     serverId: "srv_renewal",
     kind: "renewal",
+    wallet: "renewal-wallet",
+    terms: [
+      {
+        network: "eip155:8453",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        amountAtomic: "12000000",
+        agentWalletSupported: true,
+      },
+    ],
+    fundingTargetAtomic: "30000000",
     requestEnvelopePath: "/private/renewal.request.json",
     paymentArtifactPath: "/private/renewal.payment.json",
   });
@@ -31,8 +41,94 @@ test("renewal payment workflow hands the exact artifact back to WarpMetal", () =
     "--wait",
     "--json",
   ]);
-  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.4");
+  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.5");
   assert.equal(workflow.signerNodeRequirement, ">=22");
+  assert.deepEqual(workflow.walletWorkflow.setup.argv, [
+    "x402api",
+    "wallet",
+    "setup",
+    "--json",
+  ]);
+  assert.deepEqual(workflow.walletWorkflow.list.argv, [
+    "x402api",
+    "wallet",
+    "list",
+    "--json",
+  ]);
+  assert.deepEqual(workflow.walletWorkflow.createOptions[0].argv, [
+    "x402api",
+    "wallet",
+    "create",
+    "--name",
+    "<wallet-name>",
+    "--network",
+    "eip155:8453",
+    "--maximum-payment-atomic",
+    "12000000",
+    "--json",
+  ]);
+  assert.deepEqual(workflow.fundingWorkflow.funding.argv, [
+    "x402api",
+    "wallet",
+    "funding",
+    "--wallet",
+    "renewal-wallet",
+    "--asset",
+    "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    "--target-balance-atomic",
+    "30000000",
+    "--json",
+  ]);
+});
+
+test("payment workflow preserves ordered network and asset-specific wallet actions", () => {
+  const workflow = paymentWorkflow({
+    taskId: "task_options",
+    terms: [
+      {
+        network: "eip155:8453",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        amountAtomic: "25000000",
+        agentWalletSupported: true,
+      },
+      {
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amountAtomic: "25000000",
+        agentWalletSupported: true,
+      },
+    ],
+    requestEnvelopePath: "/private/options.request.json",
+    paymentArtifactPath: "/private/options.payment.json",
+  });
+
+  assert.deepEqual(
+    workflow.walletWorkflow.createOptions.map(({ network, asset }) => ({
+      network,
+      asset,
+    })),
+    [
+      {
+        network: "eip155:8453",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      },
+      {
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      },
+    ],
+  );
+  assert.equal(workflow.fundingWorkflow.options.length, 2);
+  assert.equal(
+    workflow.fundingWorkflow.options[1].balance.argv.includes(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    ),
+    true,
+  );
+  assert.equal(
+    JSON.stringify(workflow).includes("owner-token"),
+    false,
+  );
 });
 
 const requirement = {
@@ -351,6 +447,6 @@ test("payment request envelopes reject historical buyer-funded profiles", () => 
         ),
         merchantReference: "task_payment",
       }),
-    /@x402api\/agent-wallet-cli@0\.2\.4/,
+        /@x402api\/agent-wallet-cli@0\.2\.5/,
   );
 });

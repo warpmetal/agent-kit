@@ -99,7 +99,7 @@ test("submission pack contains complete, unique reviewer cases", async () => {
   const cases = await readJson(
     join(root, "submission", "openai", "reviewer-tests.json"),
   );
-  assert.equal(cases.positive.length, 5);
+  assert.equal(cases.positive.length, 6);
   assert.equal(cases.negative.length, 3);
 
   const names = [...cases.positive, ...cases.negative].map(({ name }) => name);
