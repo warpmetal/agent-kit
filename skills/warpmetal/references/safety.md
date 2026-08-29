@@ -105,6 +105,11 @@ Confirm the plan, hostname, OS, and public key before preparing it.
 ## Retry and terminal-state rules
 
 - Reuse the same idempotency key only for the exact same logical request.
+- If an unsigned gas-sponsorship reservation expires, run `warpmetal checkout
+  challenge` again. WarpMetal retires the old merchant attempt, requests fresh
+  instructions with a new payment-attempt ID and idempotency key, and the CLI
+  replaces its saved challenge metadata. Re-evaluate the new terms before
+  authorization; never sign or submit the expired challenge.
 - For `payment_pending`, retry the exact checkout body and the exact same
   payment artifact. Do not create a replacement payment.
 - A signed HTTP 402 rejects that signature. Use the new live challenge for one

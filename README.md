@@ -58,7 +58,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.7.1 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.7.3 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 

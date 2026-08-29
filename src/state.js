@@ -6,6 +6,26 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { CliError } from "./errors.js";
 
 const STATE_VERSION = 3;
+const WALLET_PAYMENT_STATE_FIELDS = [
+  "walletPaymentAttemptId",
+  "walletBuyerPaymentIdentifier",
+  "walletName",
+  "walletPayerAddress",
+  "paymentArtifactExpiresAt",
+  "paymentArtifactSavedAt",
+];
+
+function replaceChallenge(record, challenge) {
+  const changed =
+    (record.paymentAttemptId &&
+      record.paymentAttemptId !== challenge.paymentAttemptId) ||
+    (record.paymentChallengeDigest &&
+      record.paymentChallengeDigest !== challenge.paymentChallengeDigest);
+  if (changed) {
+    for (const name of WALLET_PAYMENT_STATE_FIELDS) delete record[name];
+  }
+  Object.assign(record, challenge);
+}
 
 function emptyState() {
   return {
@@ -235,9 +255,8 @@ export class StateStore {
   async saveRenewalChallenge(serverId, challenge) {
     await this.update((state) => {
       const renewal = state.renewals[serverId] || { serverId };
-      Object.assign(renewal, challenge, {
-        challengeSavedAt: new Date().toISOString(),
-      });
+      replaceChallenge(renewal, challenge);
+      renewal.challengeSavedAt = new Date().toISOString();
       state.renewals[serverId] = renewal;
     });
   }
@@ -292,13 +311,15 @@ export class StateStore {
         throw new CliError(`No local order state exists for ${taskId}.`, {
           exitCode: 2,
         });
-      order.paymentRequired = paymentRequired;
-      order.paymentAttemptId = paymentAttemptId;
-      order.challengeHandle = challengeHandle;
-      order.paymentRequestDigest = paymentRequestDigest;
-      order.paymentChallengeDigest = paymentChallengeDigest;
-      order.paymentRequestEnvelopePath = paymentWorkflow?.requestEnvelopePath;
-      order.paymentArtifactPath = paymentWorkflow?.paymentArtifactPath;
+      replaceChallenge(order, {
+        paymentRequired,
+        paymentAttemptId,
+        challengeHandle,
+        paymentRequestDigest,
+        paymentChallengeDigest,
+        paymentRequestEnvelopePath: paymentWorkflow?.requestEnvelopePath,
+        paymentArtifactPath: paymentWorkflow?.paymentArtifactPath,
+      });
       order.paymentChallengeSavedAt = new Date().toISOString();
     });
   }

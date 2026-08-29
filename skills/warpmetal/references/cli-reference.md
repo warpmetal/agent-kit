@@ -61,6 +61,10 @@ arrays. The default envelope and suggested artifact paths live under the
 private WarpMetal state directory. An explicit output path must not already
 contain different content. `challengeHandle` is intentionally absent from the
 wallet envelope: it is neither a buyer payment identifier nor signing input.
+If a previously issued unsigned sponsorship reservation expired, WarpMetal may
+retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
+saved challenge and stale wallet-attempt metadata; use only the newly returned
+workflow.
 
 The current integration targets `@x402api/agent-wallet-cli@0.2.4`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored

@@ -61,6 +61,127 @@ test("version 1 state migrates to version 3 without losing credentials", async (
   }
 });
 
+test("a replacement payment challenge clears stale wallet-attempt metadata", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-payment-refresh-"));
+  const store = new StateStore(directory);
+  const firstChallenge = {
+    paymentRequired: "payment-required-one",
+    paymentAttemptId: "pay_first",
+    challengeHandle: "challenge-first",
+    paymentRequestDigest: "sha256:request-one",
+    paymentChallengeDigest: "sha256:challenge-one",
+    paymentWorkflow: {
+      requestEnvelopePath: join(directory, "request-one.json"),
+      paymentArtifactPath: join(directory, "artifact-one.json"),
+    },
+  };
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_payment_refresh",
+          serverId: "server_payment_refresh",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "owner-secret",
+      },
+      '{"taskId":"task_payment_refresh"}',
+    );
+    await store.savePaymentChallenge("task_payment_refresh", firstChallenge);
+    await store.saveWalletPaymentAttempt("task_payment_refresh", {
+      attemptId: "wallet-attempt-one",
+      requestDigest: firstChallenge.paymentRequestDigest,
+      buyerPaymentIdentifier: "buyer-payment-one",
+      wallet: "warpmetal-base",
+      payerAddress: "0x1111111111111111111111111111111111111111",
+      path: firstChallenge.paymentWorkflow.paymentArtifactPath,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+
+    await store.savePaymentChallenge("task_payment_refresh", firstChallenge);
+    assert.equal(
+      (await store.order("task_payment_refresh")).walletPaymentAttemptId,
+      "wallet-attempt-one",
+    );
+
+    await store.savePaymentChallenge("task_payment_refresh", {
+      ...firstChallenge,
+      paymentRequired: "payment-required-two",
+      paymentAttemptId: "pay_second",
+      challengeHandle: "challenge-second",
+      paymentRequestDigest: "sha256:request-two",
+      paymentChallengeDigest: "sha256:challenge-two",
+      paymentWorkflow: {
+        requestEnvelopePath: join(directory, "request-two.json"),
+        paymentArtifactPath: join(directory, "artifact-two.json"),
+      },
+    });
+
+    const refreshed = await store.order("task_payment_refresh");
+    assert.equal(refreshed.paymentAttemptId, "pay_second");
+    assert.equal(refreshed.paymentChallengeDigest, "sha256:challenge-two");
+    assert.equal(refreshed.paymentArtifactPath, join(directory, "artifact-two.json"));
+    for (const name of [
+      "walletPaymentAttemptId",
+      "walletBuyerPaymentIdentifier",
+      "walletName",
+      "walletPayerAddress",
+      "paymentArtifactExpiresAt",
+      "paymentArtifactSavedAt",
+    ]) {
+      assert.equal(refreshed[name], undefined, `${name} must not survive a new challenge`);
+    }
+
+    const firstRenewalChallenge = {
+      paymentAttemptId: "renewal-pay-first",
+      paymentRequestDigest: "sha256:renewal-request-one",
+      paymentChallengeDigest: "sha256:renewal-challenge-one",
+      paymentArtifactPath: join(directory, "renewal-artifact-one.json"),
+    };
+    await store.saveRenewalPolicy(
+      "server_payment_refresh",
+      { maximumPaymentAtomic: "20000000" },
+      "warpmetal-base",
+      "20000000",
+    );
+    await store.saveRenewalChallenge(
+      "server_payment_refresh",
+      firstRenewalChallenge,
+    );
+    await store.saveRenewalPaymentAttempt("server_payment_refresh", {
+      attemptId: "renewal-wallet-attempt-one",
+      requestDigest: firstRenewalChallenge.paymentRequestDigest,
+      buyerPaymentIdentifier: "renewal-buyer-payment-one",
+      wallet: "warpmetal-base",
+      payerAddress: "0x2222222222222222222222222222222222222222",
+      path: firstRenewalChallenge.paymentArtifactPath,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+    });
+    await store.saveRenewalChallenge(
+      "server_payment_refresh",
+      firstRenewalChallenge,
+    );
+    assert.equal(
+      (await store.renewal("server_payment_refresh")).walletPaymentAttemptId,
+      "renewal-wallet-attempt-one",
+    );
+    await store.saveRenewalChallenge("server_payment_refresh", {
+      ...firstRenewalChallenge,
+      paymentAttemptId: "renewal-pay-second",
+      paymentRequestDigest: "sha256:renewal-request-two",
+      paymentChallengeDigest: "sha256:renewal-challenge-two",
+      paymentArtifactPath: join(directory, "renewal-artifact-two.json"),
+    });
+    const refreshedRenewal = await store.renewal("server_payment_refresh");
+    assert.equal(refreshedRenewal.paymentAttemptId, "renewal-pay-second");
+    assert.equal(refreshedRenewal.walletPaymentAttemptId, undefined);
+    assert.equal(refreshedRenewal.paymentArtifactExpiresAt, undefined);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("state binds a dedicated SSH identity and renewal policy to one server", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-identity-"));
   const store = new StateStore(directory);
