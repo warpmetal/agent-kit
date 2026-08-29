@@ -171,6 +171,12 @@ current `termEndsAt` generation are different.
 
 ## Retries and recovery
 
+- Expired unsigned gas sponsorship: run the WarpMetal challenge flow again.
+  WarpMetal retires the expired merchant attempt and requests fresh instructions
+  under a new payment-attempt ID and idempotency key. The CLI replaces stale
+  wallet-attempt metadata when it saves the new challenge. Inspect the new
+  terms and authorize only the new workflow; never reuse an expired envelope or
+  artifact.
 - `payment_pending` or `payment_finalizing`: keep the same checkout bytes and
   artifact. `--wait` performs bounded retries with that exact authorization.
 - Timeout or process restart after authorization: use the saved x402api attempt
@@ -188,6 +194,6 @@ current `termEndsAt` generation are different.
   a fresh challenge; never retry the artifact or fall back to buyer-funded gas.
 - `manual_review`: payment or fulfillment may be final. Stop all payment and
   mutation retries.
-- Expired or corrupt artifact, changed request digest, unexpected recipient,
+- Expired or corrupt signed artifact, changed request digest, unexpected recipient,
   unsupported network, asset, profile, sponsorship error, or request-binding
   mismatch: stop instead of falling back or asking the buyer to fund ETH/SOL.
