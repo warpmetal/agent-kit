@@ -115,9 +115,10 @@ Confirm the plan, hostname, OS, and public key before preparing it.
   replaces its saved challenge metadata. Re-evaluate the new terms before
   authorization; never sign or submit the expired challenge.
 - For `payment_pending`, retry the exact checkout body and the exact same
-  payment artifact. Do not create a replacement payment.
-- A signed HTTP 402 rejects that signature. Use the new live challenge for one
-  replacement authorization after checking the new terms against the current
+  payment artifact. Preserve the returned `paymentId` as the durable x402api
+  reconciliation key. Do not create a replacement payment.
+- A signed HTTP 402 rejects that signature. Preserve its `paymentId`, request a
+  new live challenge, and create one replacement authorization after checking the new terms against the current
   interactive or autonomous payment authority.
 - Treat `sponsorship_allowance_unavailable`,
   `sponsorship_payment_cap_exceeded`,

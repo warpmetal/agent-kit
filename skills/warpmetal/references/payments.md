@@ -25,7 +25,7 @@ contract.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.6`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.7`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -149,7 +149,7 @@ reservation or any buyer-funded, unsupported, or unbound alternative.
 
 x402api pays actual gas from its platform treasury. The merchant tenant's
 active sponsorship allowance controls admission, but actual gas is not a
-tenant debit. During the coordinated rollout, accept only the exact 0.2.6
+tenant debit. During the coordinated rollout, accept only the exact 0.2.7
 platform-treasury declaration or the matched legacy tenant-credit declaration;
 never accept a mixed billing and final-charge policy.
 
@@ -191,12 +191,13 @@ current `termEndsAt` generation are different.
   terms and authorize only the new workflow; never reuse an expired envelope or
   artifact.
 - `payment_pending` or `payment_finalizing`: keep the same checkout bytes and
-  artifact. `--wait` performs bounded retries with that exact authorization.
+  artifact. Preserve the returned durable `paymentId`; `--wait` records it in
+  private WarpMetal state and performs bounded retries with that exact authorization.
 - Timeout or process restart after authorization: use the saved x402api attempt
   ID and artifact. Reconcile with WarpMetal and reuse its submit argv. Never
   authorize again merely because submission is unknown.
-- Signed HTTP 402: the artifact was definitively rejected. Run the WarpMetal
-  challenge flow again, inspect the replacement terms, and authorize one new
+- Signed HTTP 402: the artifact was definitively rejected. Preserve its
+  `paymentId`, then run the WarpMetal challenge flow again, inspect the replacement terms, and authorize one new
   artifact only when the protocol and current interactive or autonomous
   payment authority allow it.
 - `sponsorship_allowance_unavailable`, `sponsorship_payment_cap_exceeded`,
