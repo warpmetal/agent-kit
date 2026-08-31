@@ -98,6 +98,10 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       path: firstChallenge.paymentWorkflow.paymentArtifactPath,
       expiresAt: "2099-01-01T00:00:00.000Z",
     });
+    await store.saveOrderPaymentId(
+      "task_payment_refresh",
+      "00000000-0000-4000-8000-000000000012",
+    );
 
     await store.savePaymentChallenge("task_payment_refresh", firstChallenge);
     assert.equal(
@@ -129,6 +133,7 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "walletPayerAddress",
       "paymentArtifactExpiresAt",
       "paymentArtifactSavedAt",
+      "gatewayPaymentId",
     ]) {
       assert.equal(refreshed[name], undefined, `${name} must not survive a new challenge`);
     }
@@ -158,6 +163,10 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       path: firstRenewalChallenge.paymentArtifactPath,
       expiresAt: "2099-01-01T00:00:00.000Z",
     });
+    await store.saveRenewalPaymentId(
+      "server_payment_refresh",
+      "00000000-0000-4000-8000-000000000022",
+    );
     await store.saveRenewalChallenge(
       "server_payment_refresh",
       firstRenewalChallenge,
@@ -177,6 +186,7 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
     assert.equal(refreshedRenewal.paymentAttemptId, "renewal-pay-second");
     assert.equal(refreshedRenewal.walletPaymentAttemptId, undefined);
     assert.equal(refreshedRenewal.paymentArtifactExpiresAt, undefined);
+    assert.equal(refreshedRenewal.gatewayPaymentId, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

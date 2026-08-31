@@ -69,7 +69,7 @@ retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
 saved challenge and stale wallet-attempt metadata; use only the newly returned
 workflow.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.6`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.7`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
 For the current declaration, x402api pays actual gas from its platform treasury

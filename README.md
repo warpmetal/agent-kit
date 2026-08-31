@@ -34,7 +34,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.6
+npm install --global @x402api/agent-wallet-cli@0.2.7
 x402api help --json
 ```
 
@@ -58,7 +58,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.7.5 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.7.6 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 

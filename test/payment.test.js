@@ -41,7 +41,7 @@ test("renewal payment workflow hands the exact artifact back to WarpMetal", () =
     "--wait",
     "--json",
   ]);
-  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.6");
+  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.7");
   assert.equal(workflow.signerNodeRequirement, ">=22");
   assert.deepEqual(workflow.walletWorkflow.setup.argv, [
     "x402api",
@@ -447,6 +447,6 @@ test("payment request envelopes reject historical buyer-funded profiles", () => 
         ),
         merchantReference: "task_payment",
       }),
-        /@x402api\/agent-wallet-cli@0\.2\.6/,
+        /@x402api\/agent-wallet-cli@0\.2\.7/,
   );
 });

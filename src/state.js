@@ -13,7 +13,10 @@ const WALLET_PAYMENT_STATE_FIELDS = [
   "walletPayerAddress",
   "paymentArtifactExpiresAt",
   "paymentArtifactSavedAt",
+  "gatewayPaymentId",
 ];
+const X402API_PAYMENT_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function replaceChallenge(record, challenge) {
   const changed =
@@ -361,6 +364,50 @@ export class StateStore {
     });
   }
 
+  async saveOrderPaymentId(taskId, paymentId) {
+    if (!X402API_PAYMENT_ID.test(paymentId || "")) {
+      throw new CliError("WarpMetal returned an invalid x402api payment ID.", {
+        exitCode: 3,
+      });
+    }
+    await this.update((state) => {
+      const order = state.orders[taskId];
+      if (!order) {
+        throw new CliError(`No local order state exists for ${taskId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (order.gatewayPaymentId && order.gatewayPaymentId !== paymentId) {
+        throw new CliError("WarpMetal changed the x402api payment ID for this attempt.", {
+          exitCode: 3,
+        });
+      }
+      order.gatewayPaymentId = paymentId;
+    });
+  }
+
+  async saveRenewalPaymentId(serverId, paymentId) {
+    if (!X402API_PAYMENT_ID.test(paymentId || "")) {
+      throw new CliError("WarpMetal returned an invalid x402api payment ID.", {
+        exitCode: 3,
+      });
+    }
+    await this.update((state) => {
+      const renewal = state.renewals[serverId];
+      if (!renewal) {
+        throw new CliError(`No local renewal state exists for ${serverId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (renewal.gatewayPaymentId && renewal.gatewayPaymentId !== paymentId) {
+        throw new CliError("WarpMetal changed the x402api payment ID for this renewal.", {
+          exitCode: 3,
+        });
+      }
+      renewal.gatewayPaymentId = paymentId;
+    });
+  }
+
   async saveAccessToken(serverId, accessToken, expiresAt) {
     await this.update((state) => {
       const server = state.servers[serverId] || { serverId };
@@ -488,6 +535,7 @@ export class StateStore {
         serverId: order.serverId,
         planId: order.planId,
         paymentAttemptId: order.paymentAttemptId,
+        paymentId: order.gatewayPaymentId,
         challengeHandle: order.challengeHandle,
         walletPaymentAttemptId: order.walletPaymentAttemptId,
         walletName: order.walletName,
@@ -523,6 +571,7 @@ export class StateStore {
         refillTargetAtomic: renewal.refillTargetAtomic,
         policy: renewal.policy,
         paymentAttemptId: renewal.paymentAttemptId,
+        paymentId: renewal.gatewayPaymentId,
         challengeHandle: renewal.challengeHandle,
         paymentArtifactExpiresAt: renewal.paymentArtifactExpiresAt,
       })),

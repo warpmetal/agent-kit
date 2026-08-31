@@ -379,13 +379,18 @@ async function pollGrant(
   }
 }
 
-function challengeResult(taskId, checkoutBody, response) {
+function challengeResult(
+  taskId,
+  checkoutBody,
+  response,
+  { requireChallenge = true } = {},
+) {
   const paymentRequired = response.headers["payment-required"];
   const challengeHandle = response.headers["x-x402api-challenge-handle"];
-  if (response.status === 402 && !paymentRequired) {
+  if (requireChallenge && response.status === 402 && !paymentRequired) {
     throw new CliError("WarpMetal returned HTTP 402 without PAYMENT-REQUIRED.");
   }
-  if (response.status === 402 && !challengeHandle) {
+  if (requireChallenge && response.status === 402 && !challengeHandle) {
     throw new CliError(
       "WarpMetal returned HTTP 402 without X-X402API-Challenge-Handle.",
     );
@@ -736,12 +741,17 @@ async function handleCheckoutSubmit(client, store, options, context) {
       token,
       paymentSignature,
     });
+    if (response.data?.paymentId) {
+      await store.saveOrderPaymentId(taskId, response.data.paymentId);
+    }
     const safe = await attachPaymentWorkflow(
       client,
       store,
       taskId,
       order,
-      challengeResult(taskId, order.checkoutBody, response),
+      challengeResult(taskId, order.checkoutBody, response, {
+        requireChallenge: false,
+      }),
     );
     const retryable =
       response.status === 202 &&
@@ -755,6 +765,7 @@ async function handleCheckoutSubmit(client, store, options, context) {
     const output = {
       ...safe,
       task: response.data?.task,
+      paymentId: response.data?.paymentId,
       message: response.data?.message,
       ...(walletPayment
         ? {
@@ -1327,6 +1338,9 @@ async function handleRenewalSubmit(client, store, options, context) {
         paymentSignature: walletPayment.paymentSignature,
       },
     );
+    if (response.data?.paymentId) {
+      await store.saveRenewalPaymentId(serverId, response.data.paymentId);
+    }
     const retryable =
       response.status === 202 &&
       ["payment_pending", "payment_finalizing"].includes(response.data?.status);
@@ -1339,6 +1353,7 @@ async function handleRenewalSubmit(client, store, options, context) {
       status: response.data?.status,
       serverId,
       task: response.data?.task,
+      paymentId: response.data?.paymentId,
       paymentAttemptId:
         response.data?.paymentAttemptId ||
         response.headers["x-warpmetal-payment-attempt"],

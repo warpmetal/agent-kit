@@ -171,6 +171,7 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       }
       return jsonResponse(202, {
         status: "provisioning",
+        paymentId: "00000000-0000-4000-8000-000000000012",
         task: { id: "task_test", state: "provisioning" },
       });
     }
@@ -280,11 +281,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.6",
-      spec: "@x402api/agent-wallet-cli@0.2.6",
+      version: "0.2.7",
+      spec: "@x402api/agent-wallet-cli@0.2.7",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.6"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.7"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
@@ -410,6 +411,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
     assert.equal(submitExit, 0, submitErr.value());
     assert.equal(JSON.parse(submitOut.value()).status, "provisioning");
+    assert.equal(
+      JSON.parse(submitOut.value()).paymentId,
+      "00000000-0000-4000-8000-000000000012",
+    );
 
     const artifactSignature = Buffer.from(
       JSON.stringify({
@@ -519,6 +524,10 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       "00000000-0000-4000-8000-000000000001",
     );
     assert.equal(
+      JSON.parse(stateListOut.value()).orders[0].paymentId,
+      "00000000-0000-4000-8000-000000000012",
+    );
+    assert.equal(
       (await readFile(join(stateDirectory, "state.json"), "utf8")).includes(
         "owner_secret_value",
       ),
@@ -576,6 +585,70 @@ test("checkout challenge fails closed without the x402api challenge handle", asy
     assert.equal(exitCode, 1);
     assert.equal(stdout.value(), "");
     assert.match(stderr.value(), /without X-X402API-Challenge-Handle/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("signed HTTP 402 preserves the durable payment ID without requiring a new challenge header", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-rejected-payment-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const signaturePath = join(directory, "payment-signature.txt");
+  await store.savePreparedOrder(
+    {
+      task: {
+        id: "task_rejected_payment",
+        serverId: "server_rejected_payment",
+        planId: "agent",
+        checkoutPath: "/checkout/agent",
+      },
+      ownerToken: "owner-secret",
+    },
+    '{"taskId":"task_rejected_payment"}',
+  );
+  await writeFile(signaturePath, "signed-payment\n", { mode: 0o600 });
+  const fetchImpl = async () =>
+    jsonResponse(
+      402,
+      {
+        status: "payment_rejected",
+        paymentAttemptId: "attempt-rejected",
+        paymentId: "00000000-0000-4000-8000-000000000099",
+      },
+      { "payment-response": "terminal-settlement-evidence" },
+    );
+
+  try {
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "submit",
+        "--task",
+        "task_rejected_payment",
+        "--payment-signature-file",
+        signaturePath,
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, cwd: directory, fetchImpl },
+    );
+
+    assert.equal(exitCode, 7, stderr.value());
+    assert.equal(JSON.parse(stdout.value()).status, "payment_rejected");
+    assert.equal(
+      JSON.parse(stdout.value()).paymentId,
+      "00000000-0000-4000-8000-000000000099",
+    );
+    assert.equal(
+      (await store.order("task_rejected_payment")).gatewayPaymentId,
+      "00000000-0000-4000-8000-000000000099",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
