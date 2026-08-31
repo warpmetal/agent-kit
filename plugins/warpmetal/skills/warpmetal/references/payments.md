@@ -207,7 +207,12 @@ current `termEndsAt` generation are different.
   terminal. The merchant tenant must restore or change its allowance and issue
   a fresh challenge; never retry the artifact or fall back to buyer-funded gas.
 - `manual_review`: payment or fulfillment may be final. Stop all payment and
-  mutation retries.
+  mutation retries. WarpMetal may continue read-only backend reconciliation for
+  `stale_payment_outcome`; check status on a later autonomous cycle without
+  submitting a payment. Only `expired` plus
+  `failure.code: payment_expired_unsettled`, `paidAt: null`, and
+  `retrySafe: true` proves the old charge expired unpaid and permits preparing
+  a new order under current standing authority. Never reuse the old signature.
 - Expired or corrupt signed artifact, changed request digest, unexpected recipient,
   unsupported network, asset, profile, sponsorship error, or request-binding
   mismatch: stop instead of falling back or asking the buyer to fund ETH/SOL.

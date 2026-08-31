@@ -142,6 +142,15 @@ human is chatting and the terms changed; in an unattended run, proceed only if
 the replacement remains within standing authority. On `manual_review` or an
 ambiguous attempt, stop and never create another payment.
 
+WarpMetal continues read-only backend reconciliation for
+`manual_review/stale_payment_outcome`; this is not a client bypass. Re-read the
+task on a later autonomous cycle. Only when it becomes `expired` with
+`failure.code` equal to `payment_expired_unsettled`, `paidAt` null, and
+`retrySafe` true has WarpMetal proved that the prior charge expired unpaid. An
+autonomous workflow may then prepare a new order if the original intent and
+standing authority still apply. Never reuse the old signature or infer safety
+from wallet balance, timeout, `paidAt`, `expired`, or `manual_review` alone.
+
 ## Renew autonomously within policy
 
 Configure a bounded server policy before unattended renewal. Require a
@@ -177,6 +186,11 @@ Poll a prepared or paid order with:
 ```sh
 warpmetal order status --task <taskId> --wait --json
 ```
+
+`manual_review` remains terminal for payment and mutation attempts. A later
+read-only status check may observe the backend's authoritative reconciliation;
+prepare a replacement only for the exact `retrySafe: true` result described
+above.
 
 After initial provisioning and every OS reload, WarpMetal reapplies the same
 key-only policy: `PasswordAuthentication no`,
