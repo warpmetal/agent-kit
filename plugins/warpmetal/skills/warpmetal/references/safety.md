@@ -131,8 +131,11 @@ Confirm the plan, hostname, OS, and public key before preparing it.
   attempt and artifact through WarpMetal. Never authorize again merely because
   submission or fulfillment is uncertain, and never send the private owner
   token through `x402api pay`, `payment submit`, or `payment reconcile`.
-- Treat `manual_review` as terminal. Do not pay again and do not repeat the
-  mutation.
+- Treat `manual_review` as terminal for payments and mutations. Do not pay
+  again and do not repeat the mutation. A later read-only status check may
+  observe automatic reconciliation of `stale_payment_outcome`; only the exact
+  `expired/payment_expired_unsettled` result with `paidAt: null` and
+  `retrySafe: true` permits preparing a new order.
 - Treat HTTP 202 as accepted or pending, never as proof of success. Poll the
   returned task or operation until a documented terminal state.
 - Temporary sandbox expiry is a local hard deadline. Stop, restart, and
