@@ -280,11 +280,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.5",
-      spec: "@x402api/agent-wallet-cli@0.2.5",
+      version: "0.2.6",
+      spec: "@x402api/agent-wallet-cli@0.2.6",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.5"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.6"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
