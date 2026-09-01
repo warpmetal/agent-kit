@@ -590,7 +590,7 @@ test("checkout challenge fails closed without the x402api challenge handle", asy
   }
 });
 
-test("signed HTTP 402 preserves the durable payment ID without requiring a new challenge header", async () => {
+test("signed HTTP 402 without a payment ID preserves safe rejection diagnostics", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-rejected-payment-test-"));
   const stateDirectory = join(directory, "state");
   const store = new StateStore(stateDirectory);
@@ -614,7 +614,9 @@ test("signed HTTP 402 preserves the durable payment ID without requiring a new c
       {
         status: "payment_rejected",
         paymentAttemptId: "attempt-rejected",
-        paymentId: "00000000-0000-4000-8000-000000000099",
+        errorCode: "structured_compliance_not_allowed",
+        requestId: "74ad1e25-b820-4979-841d-c790b5c98639",
+        replacementAllowed: false,
       },
       { "payment-response": "terminal-settlement-evidence" },
     );
@@ -640,15 +642,24 @@ test("signed HTTP 402 preserves the durable payment ID without requiring a new c
     );
 
     assert.equal(exitCode, 7, stderr.value());
-    assert.equal(JSON.parse(stdout.value()).status, "payment_rejected");
+    const output = JSON.parse(stdout.value());
+    assert.equal(output.status, "payment_rejected");
+    assert.equal(output.paymentId, undefined);
+    assert.equal(output.errorCode, "structured_compliance_not_allowed");
+    assert.equal(output.requestId, "74ad1e25-b820-4979-841d-c790b5c98639");
+    assert.equal(output.replacementAllowed, false);
+    const order = await store.order("task_rejected_payment");
+    assert.equal(order.gatewayPaymentId, undefined);
+    assert.equal(order.rejectedPaymentAttemptId, "attempt-rejected");
     assert.equal(
-      JSON.parse(stdout.value()).paymentId,
-      "00000000-0000-4000-8000-000000000099",
+      order.paymentRejectionErrorCode,
+      "structured_compliance_not_allowed",
     );
     assert.equal(
-      (await store.order("task_rejected_payment")).gatewayPaymentId,
-      "00000000-0000-4000-8000-000000000099",
+      order.paymentRejectionRequestId,
+      "74ad1e25-b820-4979-841d-c790b5c98639",
     );
+    assert.equal(order.paymentReplacementAllowed, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

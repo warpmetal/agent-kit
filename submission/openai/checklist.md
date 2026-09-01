@@ -7,7 +7,7 @@
 - [x] Bundled skill matches the authoritative `skills/warpmetal` source.
 - [x] Local repo marketplace is installed and the plugin is enabled in Codex.
 - [ ] A new Codex task triggers the plugin for each starter prompt.
-- [x] CLI version is `0.7.6` and the full suite passes on Node.js 20 and 22.
+- [x] CLI version is `0.7.7` and the full suite passes on Node.js 20 and 22.
 - [x] The public plugin remains skills-only; its automated test rejects bundled
   `bin/` or `src/` code and requires an exact copy of the reviewed skill.
 - [x] The companion CLI changes for expired unsigned challenge replacement,

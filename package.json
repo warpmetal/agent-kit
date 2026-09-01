@@ -1,6 +1,6 @@
 {
   "name": "warpmetal",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "description": "Agent-safe CLI and skill for purchasing, renewing, and managing WarpMetal VPS servers",
   "type": "module",
   "bin": {

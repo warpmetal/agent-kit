@@ -196,10 +196,12 @@ current `termEndsAt` generation are different.
 - Timeout or process restart after authorization: use the saved x402api attempt
   ID and artifact. Reconcile with WarpMetal and reuse its submit argv. Never
   authorize again merely because submission is unknown.
-- Signed HTTP 402: the artifact was definitively rejected. Preserve its
-  `paymentId`, then run the WarpMetal challenge flow again, inspect the replacement terms, and authorize one new
-  artifact only when the protocol and current interactive or autonomous
-  payment authority allow it.
+- Signed HTTP 402: the artifact was definitively rejected. A `paymentId` may be
+  absent because settlement never began; preserve the safe `errorCode`,
+  `requestId`, and `replacementAllowed` result instead. Only when
+  `replacementAllowed` is true may you run the unsigned WarpMetal challenge
+  flow again, inspect the replacement terms, and authorize the one permitted
+  replacement artifact. When false or absent, stop without signing again.
 - `sponsorship_allowance_unavailable`, `sponsorship_payment_cap_exceeded`,
   `sponsorship_payment_allowance_exhausted`,
   `sponsorship_volume_allowance_exhausted`, or
