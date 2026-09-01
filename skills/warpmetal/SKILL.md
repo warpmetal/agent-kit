@@ -11,7 +11,7 @@ with ad hoc HTTP commands.
 
 ## Start safely
 
-1. Run `warpmetal --version` and require version `0.7.6` or newer for this
+1. Run `warpmetal --version` and require version `0.7.7` or newer for this
    plugin. If it is missing or older, explain the compatibility requirement,
    ask before installing or upgrading software, and use only the official npm
    package from `https://www.npmjs.com/package/warpmetal`.
@@ -136,10 +136,11 @@ WarpMetal verifies that the artifact matches the exact saved request and an
 advertised sponsored requirement, gas reservation, resource, extensions, and
 buyer payment identifier before sending its signature. The legacy
 `--payment-signature-file` input remains available for another compatible
-external signer. If a signed request returns a replacement challenge, use the
-new CLI-produced workflow and re-evaluate payment authority. Ask again when a
-human is chatting and the terms changed; in an unattended run, proceed only if
-the replacement remains within standing authority. On `manual_review` or an
+external signer. If a signed request returns `payment_rejected`, preserve its
+safe `errorCode` and `requestId` diagnostics and inspect `replacementAllowed`.
+When it is true, run the unsigned challenge flow again and re-evaluate payment
+authority before creating the one permitted replacement authorization. When it
+is false or absent, stop without signing again. On `manual_review` or an
 ambiguous attempt, stop and never create another payment.
 
 WarpMetal continues read-only backend reconciliation for

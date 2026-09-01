@@ -1,6 +1,6 @@
 {
   "name": "warpmetal",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Safely purchase, renew, and manage WarpMetal VPS servers and Agent Runtime sandboxes with the official CLI.",
   "author": {
     "name": "WarpMetal",

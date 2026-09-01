@@ -14,9 +14,60 @@ const WALLET_PAYMENT_STATE_FIELDS = [
   "paymentArtifactExpiresAt",
   "paymentArtifactSavedAt",
   "gatewayPaymentId",
+  "rejectedPaymentAttemptId",
+  "paymentRejectionErrorCode",
+  "paymentRejectionRequestId",
+  "paymentReplacementAllowed",
+  "paymentRejectedAt",
 ];
 const X402API_PAYMENT_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SAFE_PROTOCOL_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
+
+function validatedPaymentRejection({
+  paymentAttemptId,
+  errorCode,
+  requestId,
+  replacementAllowed,
+}) {
+  if (
+    typeof paymentAttemptId !== "string" ||
+    !SAFE_PROTOCOL_IDENTIFIER.test(paymentAttemptId)
+  ) {
+    throw new CliError("WarpMetal returned an invalid payment-attempt ID.", {
+      exitCode: 3,
+    });
+  }
+  for (const [label, value] of [
+    ["payment rejection error code", errorCode],
+    ["payment rejection request ID", requestId],
+  ]) {
+    if (
+      value !== undefined &&
+      (typeof value !== "string" || !SAFE_PROTOCOL_IDENTIFIER.test(value))
+    ) {
+      throw new CliError(`WarpMetal returned an invalid ${label}.`, {
+        exitCode: 3,
+      });
+    }
+  }
+  if (
+    replacementAllowed !== undefined &&
+    typeof replacementAllowed !== "boolean"
+  ) {
+    throw new CliError(
+      "WarpMetal returned an invalid payment replacement decision.",
+      { exitCode: 3 },
+    );
+  }
+  return {
+    rejectedPaymentAttemptId: paymentAttemptId,
+    paymentRejectionErrorCode: errorCode,
+    paymentRejectionRequestId: requestId,
+    paymentReplacementAllowed: replacementAllowed,
+    paymentRejectedAt: new Date().toISOString(),
+  };
+}
 
 function replaceChallenge(record, challenge) {
   const changed =
@@ -386,6 +437,28 @@ export class StateStore {
     });
   }
 
+  async saveOrderPaymentRejection(taskId, rejection) {
+    const safe = validatedPaymentRejection(rejection);
+    await this.update((state) => {
+      const order = state.orders[taskId];
+      if (!order) {
+        throw new CliError(`No local order state exists for ${taskId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (
+        order.paymentAttemptId &&
+        order.paymentAttemptId !== safe.rejectedPaymentAttemptId
+      ) {
+        throw new CliError(
+          "WarpMetal changed the payment-attempt ID for this authorization.",
+          { exitCode: 3 },
+        );
+      }
+      Object.assign(order, safe);
+    });
+  }
+
   async saveRenewalPaymentId(serverId, paymentId) {
     if (!X402API_PAYMENT_ID.test(paymentId || "")) {
       throw new CliError("WarpMetal returned an invalid x402api payment ID.", {
@@ -405,6 +478,28 @@ export class StateStore {
         });
       }
       renewal.gatewayPaymentId = paymentId;
+    });
+  }
+
+  async saveRenewalPaymentRejection(serverId, rejection) {
+    const safe = validatedPaymentRejection(rejection);
+    await this.update((state) => {
+      const renewal = state.renewals[serverId];
+      if (!renewal) {
+        throw new CliError(`No local renewal state exists for ${serverId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (
+        renewal.paymentAttemptId &&
+        renewal.paymentAttemptId !== safe.rejectedPaymentAttemptId
+      ) {
+        throw new CliError(
+          "WarpMetal changed the payment-attempt ID for this renewal authorization.",
+          { exitCode: 3 },
+        );
+      }
+      Object.assign(renewal, safe);
     });
   }
 
@@ -541,6 +636,10 @@ export class StateStore {
         walletName: order.walletName,
         payerAddress: order.walletPayerAddress,
         paymentArtifactExpiresAt: order.paymentArtifactExpiresAt,
+        rejectedPaymentAttemptId: order.rejectedPaymentAttemptId,
+        paymentRejectionErrorCode: order.paymentRejectionErrorCode,
+        paymentRejectionRequestId: order.paymentRejectionRequestId,
+        paymentReplacementAllowed: order.paymentReplacementAllowed,
         credentialStored: Boolean(order.ownerToken),
       })),
       servers: Object.values(state.servers).map((server) => ({
@@ -574,6 +673,10 @@ export class StateStore {
         paymentId: renewal.gatewayPaymentId,
         challengeHandle: renewal.challengeHandle,
         paymentArtifactExpiresAt: renewal.paymentArtifactExpiresAt,
+        rejectedPaymentAttemptId: renewal.rejectedPaymentAttemptId,
+        paymentRejectionErrorCode: renewal.paymentRejectionErrorCode,
+        paymentRejectionRequestId: renewal.paymentRejectionRequestId,
+        paymentReplacementAllowed: renewal.paymentReplacementAllowed,
       })),
     };
   }

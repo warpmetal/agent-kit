@@ -102,6 +102,12 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "task_payment_refresh",
       "00000000-0000-4000-8000-000000000012",
     );
+    await store.saveOrderPaymentRejection("task_payment_refresh", {
+      paymentAttemptId: "pay_first",
+      errorCode: "structured_compliance_not_allowed",
+      requestId: "74ad1e25-b820-4979-841d-c790b5c98639",
+      replacementAllowed: true,
+    });
 
     await store.savePaymentChallenge("task_payment_refresh", firstChallenge);
     assert.equal(
@@ -134,6 +140,11 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "paymentArtifactExpiresAt",
       "paymentArtifactSavedAt",
       "gatewayPaymentId",
+      "rejectedPaymentAttemptId",
+      "paymentRejectionErrorCode",
+      "paymentRejectionRequestId",
+      "paymentReplacementAllowed",
+      "paymentRejectedAt",
     ]) {
       assert.equal(refreshed[name], undefined, `${name} must not survive a new challenge`);
     }
@@ -167,6 +178,12 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "server_payment_refresh",
       "00000000-0000-4000-8000-000000000022",
     );
+    await store.saveRenewalPaymentRejection("server_payment_refresh", {
+      paymentAttemptId: "renewal-pay-first",
+      errorCode: "screening_not_allowed",
+      requestId: "b5da0e9b-4ad8-4fb1-8805-6a3cff5fd88f",
+      replacementAllowed: true,
+    });
     await store.saveRenewalChallenge(
       "server_payment_refresh",
       firstRenewalChallenge,
@@ -187,6 +204,10 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
     assert.equal(refreshedRenewal.walletPaymentAttemptId, undefined);
     assert.equal(refreshedRenewal.paymentArtifactExpiresAt, undefined);
     assert.equal(refreshedRenewal.gatewayPaymentId, undefined);
+    assert.equal(refreshedRenewal.rejectedPaymentAttemptId, undefined);
+    assert.equal(refreshedRenewal.paymentRejectionErrorCode, undefined);
+    assert.equal(refreshedRenewal.paymentRejectionRequestId, undefined);
+    assert.equal(refreshedRenewal.paymentReplacementAllowed, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

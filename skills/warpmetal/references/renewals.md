@@ -127,7 +127,9 @@ generated QR encoding only that address.
 ## Stop and recovery states
 
 - Insufficient balance: notify once, stop, and recheck later.
-- Signed HTTP 402: re-run prepare and re-evaluate the replacement challenge.
+- Signed HTTP 402: preserve the safe rejection diagnostics. Re-run prepare and
+  re-evaluate one replacement challenge only when `replacementAllowed` is true;
+  stop when false or absent.
 - Pending or timeout after authorization: reuse the same artifact; do not sign again.
 - Price or payment rail outside policy: stop for deliberate policy revision.
 - Exhausted count, horizon, or cumulative budget: stop for deliberate policy revision.

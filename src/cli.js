@@ -385,6 +385,8 @@ function challengeResult(
   response,
   { requireChallenge = true } = {},
 ) {
+  const status = response.data?.status;
+  const rejected = response.status === 402 && status === "payment_rejected";
   const paymentRequired = response.headers["payment-required"];
   const challengeHandle = response.headers["x-x402api-challenge-handle"];
   if (requireChallenge && response.status === 402 && !paymentRequired) {
@@ -396,7 +398,7 @@ function challengeResult(
     );
   }
   return {
-    status: response.data?.status,
+    status,
     taskId,
     paymentAttemptId:
       response.data?.paymentAttemptId ||
@@ -404,6 +406,13 @@ function challengeResult(
     paymentRequired,
     challengeHandle,
     checkoutBodySha256: createHash("sha256").update(checkoutBody).digest("hex"),
+    ...(rejected
+      ? {
+          errorCode: response.data?.errorCode,
+          requestId: response.data?.requestId,
+          replacementAllowed: response.data?.replacementAllowed,
+        }
+      : {}),
   };
 }
 
@@ -753,6 +762,14 @@ async function handleCheckoutSubmit(client, store, options, context) {
         requireChallenge: false,
       }),
     );
+    if (response.status === 402 && safe.status === "payment_rejected") {
+      await store.saveOrderPaymentRejection(taskId, {
+        paymentAttemptId: safe.paymentAttemptId,
+        errorCode: safe.errorCode,
+        requestId: safe.requestId,
+        replacementAllowed: safe.replacementAllowed,
+      });
+    }
     const retryable =
       response.status === 202 &&
       ["payment_pending", "payment_finalizing"].includes(response.data?.status);
@@ -1341,6 +1358,16 @@ async function handleRenewalSubmit(client, store, options, context) {
     if (response.data?.paymentId) {
       await store.saveRenewalPaymentId(serverId, response.data.paymentId);
     }
+    if (response.status === 402 && response.data?.status === "payment_rejected") {
+      await store.saveRenewalPaymentRejection(serverId, {
+        paymentAttemptId:
+          response.data?.paymentAttemptId ||
+          response.headers["x-warpmetal-payment-attempt"],
+        errorCode: response.data?.errorCode,
+        requestId: response.data?.requestId,
+        replacementAllowed: response.data?.replacementAllowed,
+      });
+    }
     const retryable =
       response.status === 202 &&
       ["payment_pending", "payment_finalizing"].includes(response.data?.status);
@@ -1357,6 +1384,9 @@ async function handleRenewalSubmit(client, store, options, context) {
       paymentAttemptId:
         response.data?.paymentAttemptId ||
         response.headers["x-warpmetal-payment-attempt"],
+      errorCode: response.data?.errorCode,
+      requestId: response.data?.requestId,
+      replacementAllowed: response.data?.replacementAllowed,
       walletPayment: {
         attemptId: walletPayment.attemptId,
         wallet: walletPayment.wallet,
