@@ -92,6 +92,7 @@ const paymentRequiredHeader = Buffer.from(
   JSON.stringify(paymentRequired),
   "utf8",
 ).toString("base64");
+const authoritativeChallengeDigest = `sha256:${"6".repeat(64)}`;
 
 function capture() {
   let value = "";
@@ -162,10 +163,15 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       if (!headers.get("payment-signature")) {
         return jsonResponse(
           402,
-          { status: "payment_required", paymentAttemptId: "payment_test" },
+          {
+            status: "payment_required",
+            paymentAttemptId: "payment_test",
+            challengeDigest: authoritativeChallengeDigest,
+          },
           {
             "payment-required": paymentRequiredHeader,
             "x-x402api-challenge-handle": "charge_test",
+            "x-x402api-challenge-digest": authoritativeChallengeDigest,
           },
         );
       }
@@ -281,11 +287,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.7",
-      spec: "@x402api/agent-wallet-cli@0.2.7",
+      version: "0.2.8",
+      spec: "@x402api/agent-wallet-cli@0.2.8",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.7"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.8"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
@@ -590,6 +596,61 @@ test("checkout challenge fails closed without the x402api challenge handle", asy
   }
 });
 
+test("checkout challenge fails closed without the authoritative challenge digest", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-digest-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_missing_digest",
+          serverId: "server_missing_digest",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "owner_missing_digest",
+      },
+      '{"taskId":"task_missing_digest"}',
+    );
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_missing_digest",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl: async () =>
+          jsonResponse(
+            402,
+            { status: "payment_required", paymentAttemptId: "payment_missing_digest" },
+            {
+              "payment-required": paymentRequiredHeader,
+              "x-x402api-challenge-handle": "charge_missing_digest",
+            },
+          ),
+      },
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(stdout.value(), "");
+    assert.match(stderr.value(), /without X-X402API-Challenge-Digest/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("signed HTTP 402 without a payment ID preserves safe rejection diagnostics", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-rejected-payment-test-"));
   const stateDirectory = join(directory, "state");
@@ -703,10 +764,15 @@ test("checkout challenge guides a human through wallet onboarding before authori
         fetchImpl: async () =>
           jsonResponse(
             402,
-            { status: "payment_required", paymentAttemptId: "payment_wallet_guide" },
+            {
+              status: "payment_required",
+              paymentAttemptId: "payment_wallet_guide",
+              challengeDigest: authoritativeChallengeDigest,
+            },
             {
               "payment-required": paymentRequiredHeader,
               "x-x402api-challenge-handle": "charge_wallet_guide",
+              "x-x402api-challenge-digest": authoritativeChallengeDigest,
             },
           ),
       },
@@ -865,10 +931,15 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
       ) {
         return jsonResponse(
           402,
-          { status: "payment_required", paymentAttemptId: "payment_renewal" },
+          {
+            status: "payment_required",
+            paymentAttemptId: "payment_renewal",
+            challengeDigest: authoritativeChallengeDigest,
+          },
           {
             "payment-required": renewalHeader,
             "x-x402api-challenge-handle": "charge_renewal",
+            "x-x402api-challenge-digest": authoritativeChallengeDigest,
           },
         );
       }

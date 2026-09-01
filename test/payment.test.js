@@ -12,6 +12,8 @@ import {
   readPaymentArtifact,
 } from "../src/payment.js";
 
+const AUTHORITATIVE_CHALLENGE_DIGEST = `sha256:${"6".repeat(64)}`;
+
 test("renewal payment workflow hands the exact artifact back to WarpMetal", () => {
   const workflow = paymentWorkflow({
     taskId: "task_renewal",
@@ -41,7 +43,7 @@ test("renewal payment workflow hands the exact artifact back to WarpMetal", () =
     "--wait",
     "--json",
   ]);
-  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.7");
+  assert.equal(workflow.signerPackage.spec, "@x402api/agent-wallet-cli@0.2.8");
   assert.equal(workflow.signerNodeRequirement, ">=22");
   assert.deepEqual(workflow.walletWorkflow.setup.argv, [
     "x402api",
@@ -230,6 +232,7 @@ function request() {
     paymentRequired: Buffer.from(JSON.stringify(paymentRequired)).toString(
       "base64",
     ),
+    challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
     merchantReference: "task_payment",
   });
 }
@@ -289,6 +292,7 @@ test("payment request envelopes retain matched legacy sponsorship compatibility"
     checkoutPath: "/checkout/standard",
     checkoutBody: '{"taskId":"task_payment"}',
     paymentRequired: Buffer.from(JSON.stringify(legacy)).toString("base64"),
+    challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
     merchantReference: "task_payment",
   });
   assert.equal(value.terms[0].agentWalletSupported, true);
@@ -317,6 +321,7 @@ test("payment request envelopes reject mixed sponsorship policies", () => {
           paymentRequired: Buffer.from(JSON.stringify(mixed)).toString(
             "base64",
           ),
+          challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
           merchantReference: "task_payment",
         }),
       /gas-sponsorship extension is malformed/,
@@ -421,6 +426,7 @@ test("payment request envelopes reject challenge/resource mismatches", () => {
         checkoutPath: "/checkout/standard",
         checkoutBody: '{"taskId":"task_payment"}',
         paymentRequired,
+        challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
         merchantReference: "task_payment",
       }),
     /different checkout URL/,
@@ -445,8 +451,29 @@ test("payment request envelopes reject historical buyer-funded profiles", () => 
         paymentRequired: Buffer.from(JSON.stringify(historical)).toString(
           "base64",
         ),
+        challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
         merchantReference: "task_payment",
       }),
-        /@x402api\/agent-wallet-cli@0\.2\.7/,
+        /@x402api\/agent-wallet-cli@0\.2\.8/,
+  );
+});
+
+test("payment request envelopes reject a locally derived challenge digest", () => {
+  const challenge = paymentChallenge(
+    "https://api.warpmetal.test/checkout/standard",
+  );
+  assert.throws(
+    () =>
+      createPaymentRequestEnvelope({
+        baseUrl: "https://api.warpmetal.test",
+        checkoutPath: "/checkout/standard",
+        checkoutBody: '{"taskId":"task_payment"}',
+        paymentRequired: Buffer.from(JSON.stringify(challenge)).toString(
+          "base64",
+        ),
+        challengeDigest: digestJson(challenge),
+        merchantReference: "task_payment",
+      }),
+    /derived from PAYMENT-REQUIRED/,
   );
 });

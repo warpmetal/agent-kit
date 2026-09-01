@@ -25,7 +25,7 @@ contract.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.7`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.8`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -140,6 +140,9 @@ also contains `challengeHandle`, an opaque value retained by WarpMetal for
 merchant reconciliation. It is deliberately excluded from the x402api V1
 request envelope and must not be confused with the wallet-created buyer payment
 identifier.
+The wallet nonce is bound to the authoritative `paymentChallengeDigest` that
+WarpMetal forwards from x402api's charge response. Never derive or replace that
+digest with a hash of `PAYMENT-REQUIRED`.
 
 Choose only a term marked `agentWalletSupported: true`,
 `sponsoredNetworkFee: true`, and `buyerNativeFeeRequired: false`. The supported
@@ -149,7 +152,7 @@ reservation or any buyer-funded, unsupported, or unbound alternative.
 
 x402api pays actual gas from its platform treasury. The merchant tenant's
 active sponsorship allowance controls admission, but actual gas is not a
-tenant debit. During the coordinated rollout, accept only the exact 0.2.7
+tenant debit. During the coordinated rollout, accept only the exact 0.2.8
 platform-treasury declaration or the matched legacy tenant-credit declaration;
 never accept a mixed billing and final-charge policy.
 

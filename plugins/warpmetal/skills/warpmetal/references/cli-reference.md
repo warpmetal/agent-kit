@@ -64,12 +64,15 @@ suggested artifact paths live under the
 private WarpMetal state directory. An explicit output path must not already
 contain different content. `challengeHandle` is intentionally absent from the
 wallet envelope: it is neither a buyer payment identifier nor signing input.
+`paymentChallengeDigest` is the distinct authoritative signing input forwarded
+from x402api; the CLI fails closed instead of deriving it from
+`PAYMENT-REQUIRED`.
 If a previously issued unsigned sponsorship reservation expired, WarpMetal may
 retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
 saved challenge and stale wallet-attempt metadata; use only the newly returned
 workflow.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.7`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.8`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
 For the current declaration, x402api pays actual gas from its platform treasury

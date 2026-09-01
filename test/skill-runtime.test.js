@@ -54,7 +54,7 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "x402api payment authorize",
     "request envelope",
     "Node.js 20 or 22",
-    "@x402api/agent-wallet-cli@0.2.7",
+    "@x402api/agent-wallet-cli@0.2.8",
     "x402api wallet setup --json",
     "x402api wallet funding --wallet <name>",
     "agentWalletSupported: true",
