@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.7";
+export const AGENT_WALLET_VERSION = "0.2.8";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -399,7 +399,7 @@ export function parsePaymentRequired(value, expectedUrl) {
   const sponsorship = extensions[GAS_SPONSORSHIP_EXTENSION]?.info;
   return {
     challenge: parsed,
-    challengeDigest: digestJson(parsed),
+    paymentRequiredDigest: digestJson(parsed),
     accepts,
     sponsorshipExpiresAt: sponsorship?.expiresAt,
     terms: accepts.map((requirement) => {
@@ -434,6 +434,7 @@ export function createPaymentRequestEnvelope({
   checkoutPath,
   checkoutBody,
   paymentRequired,
+  challengeDigest,
   merchantReference,
 }) {
   const url = new URL(
@@ -441,6 +442,14 @@ export function createPaymentRequestEnvelope({
     `${baseUrl.replace(/\/$/, "")}/`,
   ).toString();
   const parsed = parsePaymentRequired(paymentRequired, url);
+  if (typeof challengeDigest !== "string" || !SHA256.test(challengeDigest)) {
+    throw invalid("The authoritative x402 challenge digest is malformed.");
+  }
+  if (challengeDigest === parsed.paymentRequiredDigest) {
+    throw invalid(
+      "The x402 challenge digest was derived from PAYMENT-REQUIRED instead of the authoritative charge response.",
+    );
+  }
   const supportedTerms = parsed.terms.filter(
     (term) => term.agentWalletSupported,
   );
@@ -466,13 +475,13 @@ export function createPaymentRequestEnvelope({
     contentType: "application/json",
     bodyBase64: Buffer.from(checkoutBody, "utf8").toString("base64"),
     paymentRequired,
-    challengeDigest: parsed.challengeDigest,
+    challengeDigest,
     merchantReference,
   };
   return {
     envelope,
     requestDigest: digestJson(envelope),
-    challengeDigest: parsed.challengeDigest,
+    challengeDigest,
     challenge: parsed.challenge,
     sponsorshipExpiresAt: parsed.sponsorshipExpiresAt,
     requirementDigests: new Set(

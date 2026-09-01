@@ -11,7 +11,7 @@ with ad hoc HTTP commands.
 
 ## Start safely
 
-1. Run `warpmetal --version` and require version `0.7.7` or newer for this
+1. Run `warpmetal --version` and require version `0.7.8` or newer for this
    plugin. If it is missing or older, explain the compatibility requirement,
    ask before installing or upgrading software, and use only the official npm
    package from `https://www.npmjs.com/package/warpmetal`.

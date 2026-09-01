@@ -6,7 +6,7 @@ payment authorization, provisioning, renewal, server lifecycle management, and
 optional Agent Runtime sandbox workflows using the official WarpMetal CLI.
 
 The plugin does not include an MCP server or bundle CLI source. It targets the
-reviewed `warpmetal` CLI v0.7.7 contract, including x402api Agent Wallet 0.2.7
+reviewed `warpmetal` CLI v0.7.8 contract, including x402api Agent Wallet 0.2.8
 managed wallet setup, network-specific wallet creation, exact asset balance
 and deficit reporting, platform-treasury sponsorship, automatic replacement of
 expired unsigned merchant challenges, opaque challenge reconciliation,

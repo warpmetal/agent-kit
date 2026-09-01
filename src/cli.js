@@ -389,12 +389,30 @@ function challengeResult(
   const rejected = response.status === 402 && status === "payment_rejected";
   const paymentRequired = response.headers["payment-required"];
   const challengeHandle = response.headers["x-x402api-challenge-handle"];
+  const headerChallengeDigest =
+    response.headers["x-x402api-challenge-digest"];
+  const bodyChallengeDigest = response.data?.challengeDigest;
+  if (
+    headerChallengeDigest &&
+    bodyChallengeDigest &&
+    headerChallengeDigest !== bodyChallengeDigest
+  ) {
+    throw new CliError(
+      "WarpMetal returned conflicting x402 challenge digests.",
+    );
+  }
+  const challengeDigest = bodyChallengeDigest || headerChallengeDigest;
   if (requireChallenge && response.status === 402 && !paymentRequired) {
     throw new CliError("WarpMetal returned HTTP 402 without PAYMENT-REQUIRED.");
   }
   if (requireChallenge && response.status === 402 && !challengeHandle) {
     throw new CliError(
       "WarpMetal returned HTTP 402 without X-X402API-Challenge-Handle.",
+    );
+  }
+  if (paymentRequired && !challengeDigest) {
+    throw new CliError(
+      "WarpMetal returned PAYMENT-REQUIRED without X-X402API-Challenge-Digest.",
     );
   }
   return {
@@ -405,6 +423,7 @@ function challengeResult(
       response.headers["x-warpmetal-payment-attempt"],
     paymentRequired,
     challengeHandle,
+    challengeDigest,
     checkoutBodySha256: createHash("sha256").update(checkoutBody).digest("hex"),
     ...(rejected
       ? {
@@ -430,6 +449,7 @@ async function attachPaymentWorkflow(
     checkoutPath: order.checkoutPath,
     checkoutBody: order.checkoutBody,
     paymentRequired: safe.paymentRequired,
+    challengeDigest: safe.challengeDigest,
     merchantReference: taskId,
   });
   const defaults = defaultPaymentPaths(
@@ -727,6 +747,7 @@ async function handleCheckoutSubmit(client, store, options, context) {
       checkoutPath: order.checkoutPath,
       checkoutBody: order.checkoutBody,
       paymentRequired: order.paymentRequired,
+      challengeDigest: order.paymentChallengeDigest,
       merchantReference: taskId,
     });
     walletPayment = await readPaymentArtifact(artifactFile, expected);
@@ -1043,6 +1064,7 @@ async function attachRenewalPaymentWorkflow(
     checkoutPath,
     checkoutBody: bodyText,
     paymentRequired: safe.paymentRequired,
+    challengeDigest: safe.challengeDigest,
     merchantReference: `renew:${serverId}:${server.termEndsAt || "unset"}`,
   });
   const matchingTerms = request.terms.filter(
@@ -1317,6 +1339,7 @@ async function handleRenewalSubmit(client, store, options, context) {
     checkoutPath: renewal.checkoutPath,
     checkoutBody: renewal.checkoutBody,
     paymentRequired: renewal.paymentRequired,
+    challengeDigest: renewal.paymentChallengeDigest,
     merchantReference: `renew:${serverId}:${renewal.termEndsAt || "unset"}`,
   });
   const walletPayment = await readPaymentArtifact(artifactFile, expected);
