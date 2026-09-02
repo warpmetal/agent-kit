@@ -197,7 +197,7 @@ or escalation mechanism or stop with `funding_required`.
 
 Configure renewal only with explicit bounds. This example allows at most 12
 renewals, enforces a 30 USDC per-payment ceiling and a 360 USDC cumulative
-budget, and requests a verified notification recipient:
+budget, and activates a human notification recipient after server authorization:
 
 ```sh
 warpmetal renewal configure \
@@ -213,12 +213,26 @@ warpmetal renewal configure \
   --json
 ```
 
-The recipient must follow the one-time verification link before lifecycle or
-refill mail is sent. If no verified notification email exists, `renewal
-configure` returns `email_required` before changing policy. Supply `--email`,
-or deliberately continue with `--without-email-notifications`; the latter does
-not enable signed refill-email workflows. A recurring unattended agent can then
-run:
+No email verification is required: the saved owner credential or an SSH-derived
+server token authorizes the change. WarpMetal queues a branded transactional
+advisory identifying the server, why the address was added, and a link that
+removes only that address. Up to five active addresses may be attached
+to one server. If none exists, `renewal configure` returns `email_required`
+before changing policy. Supply `--email`, or deliberately continue with
+`--without-email-notifications`; the latter does not enable signed refill-email
+workflows. A recurring unattended agent can then run:
+
+```sh
+warpmetal notifications add --server <serverId> --email ops@example.com --json
+warpmetal notifications list --server <serverId> --json
+warpmetal notifications remove --server <serverId> --recipient <recipientId> --json
+warpmetal notifications events --server <serverId> --events renewal.due,server.ready --json
+warpmetal notifications disable --server <serverId> --json
+```
+
+After provisioning, `warpmetal order status` includes the structured
+`ask_human_for_notification_email` next action until a recipient is active or
+the human explicitly opts out. Public CLI output contains only masked addresses.
 
 ```sh
 warpmetal renewal due --all --json
@@ -227,17 +241,17 @@ warpmetal renewal run --all-due --json
 
 Inside policy, the CLI returns the exact Agent Wallet authorization and submit
 argv. If balance is insufficient, `refillWorkflow` is returned only when the
-server has an active verified notification subscription. Run its argv with the
+server has an active notification recipient. Run its argv with the
 returned `X402API_NOTIFICATION_URL` environment value. `x402api wallet
 notify-refill` signs an opaque subscription reference and wallet-produced
 balance fields; it cannot choose an email address. WarpMetal verifies the
-wallet signature and current on-chain balance before emailing the verified
-human the network, stablecoin, public wallet address, required minimum top-up,
+wallet signature and current on-chain balance before emailing every active
+human recipient the network, stablecoin, public wallet address, required minimum top-up,
 and a locally generated QR encoding only that wallet address. The address is
 also repeated as copyable text. The human may transfer more than that minimum;
 the renewal policy—not the refill target—remains the spending authority.
 
-The agent never sends a partial x402 payment. If no verified refill path
+The agent never sends a partial x402 payment. If no active recipient refill path
 exists, it reports `funding_required`. If a previous payment is pending or
 ambiguous, it reconciles the saved attempt and never signs a second payment.
 

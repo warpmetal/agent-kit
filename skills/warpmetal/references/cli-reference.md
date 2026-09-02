@@ -125,15 +125,25 @@ warpmetal renewal prepare --server <serverId> --json
 warpmetal renewal submit --server <serverId> \
   --payment-artifact <path> [--wait] --json
 warpmetal renewal run (--server <serverId> | --all-due) --json
-warpmetal notifications configure --server <serverId> --email <address> \
+warpmetal notifications add --server <serverId> --email <address> \
   [--events <comma-separated-events>] --json
-warpmetal notifications status --server <serverId> --json
+warpmetal notifications list --server <serverId> --json
+warpmetal notifications remove --server <serverId> --recipient <recipientId> --json
+warpmetal notifications events --server <serverId> \
+  --events <comma-separated-events> --json
+warpmetal notifications disable --server <serverId> --json
 ```
 
-Without a verified notification email, renewal configuration asks for an email
-before mutating policy unless `--without-email-notifications` explicitly opts
-out. `renewal prepare` always returns safe funding address/balance argv and
-returns signed refill-email argv only for a verified active subscription.
+After a server becomes ready, `order status` returns
+`nextAction.action: ask_human_for_notification_email` when setup has not been
+completed or dismissed. Ask the human for an optional address, then use
+`notifications add`; the server credential authorizes immediate activation, so
+there is no verification step. A branded advisory identifies the server and
+provides recipient-scoped removal. Up to five active recipients are supported.
+Renewal configuration asks for an email before mutating policy unless
+`--without-email-notifications` explicitly opts out. `renewal prepare` always
+returns safe funding address/balance argv and returns signed refill-email argv
+only when at least one active recipient exists.
 `renewal run` is an agent-facing state machine, not a wallet-signing daemon.
 See [renewals.md](renewals.md).
 

@@ -208,19 +208,43 @@ export class WarpMetalClient {
     );
   }
 
-  putNotifications(serverId, body, token) {
+  putNotifications(serverId, body, token, idempotencyKey) {
     return this.request(
       "PUT",
       `/servers/${encodeURIComponent(serverId)}/notifications`,
-      { body, token },
+      { body, token, idempotencyKey },
     );
   }
 
-  deleteNotifications(serverId, token) {
+  addNotificationRecipient(serverId, body, token, idempotencyKey) {
+    return this.request(
+      "POST",
+      `/servers/${encodeURIComponent(serverId)}/notification-recipients`,
+      { body, token, idempotencyKey },
+    );
+  }
+
+  patchNotifications(serverId, body, token, idempotencyKey) {
+    return this.request(
+      "PATCH",
+      `/servers/${encodeURIComponent(serverId)}/notifications`,
+      { body, token, idempotencyKey },
+    );
+  }
+
+  deleteNotifications(serverId, token, idempotencyKey) {
     return this.request(
       "DELETE",
       `/servers/${encodeURIComponent(serverId)}/notifications`,
-      { token },
+      { token, idempotencyKey },
+    );
+  }
+
+  deleteNotificationRecipient(serverId, recipientId, token, idempotencyKey) {
+    return this.request(
+      "DELETE",
+      `/servers/${encodeURIComponent(serverId)}/notification-recipients/${encodeURIComponent(recipientId)}`,
+      { token, idempotencyKey },
     );
   }
 

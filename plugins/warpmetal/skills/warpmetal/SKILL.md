@@ -173,7 +173,8 @@ use `paymentWorkflow.fundingWorkflow` to obtain the public address and balance,
 then show the address as both a QR code and copyable text. Only when
 `refillNotification.available` is true, set the returned
 `refillWorkflow.environment`, invoke its exact argv once, and stop until
-funding arrives. The signed refill intent resolves to a verified human contact;
+funding arrives. The signed refill intent resolves server-side to the active
+SSH-authorized human recipients;
 never add an email address to it. Never make a partial payment.
 
 After funding, prepare again, authorize exactly once, submit with WarpMetal,
@@ -187,6 +188,15 @@ Poll a prepared or paid order with:
 ```sh
 warpmetal order status --task <taskId> --wait --json
 ```
+
+When the ready response contains
+`nextAction.action: ask_human_for_notification_email`, ask the human whether
+they want renewal and lifecycle notices. If yes, add the supplied address with
+`warpmetal notifications add --server <serverId> --email <address> --json`.
+The server credential is the authorization; there is no email verification
+step. The address receives a branded advisory and can remove itself without
+affecting other recipients. If the human declines, run the returned
+`notifications disable` command so future status checks do not ask again.
 
 `manual_review` remains terminal for payment and mutation attempts. A later
 read-only status check may observe the backend's authoritative reconciliation;

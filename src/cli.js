@@ -87,8 +87,14 @@ Usage:
     [--email <address> | --without-email-notifications]
   warpmetal renewal status|prepare|submit|run ...
   warpmetal renewal due (--server <serverId> | --all)
-  warpmetal notifications configure --server <serverId> --email <address>
-  warpmetal notifications status --server <serverId>
+  warpmetal notifications add --server <serverId> --email <address>
+    [--events <comma-separated-events>] [--idempotency-key <key>]
+  warpmetal notifications list --server <serverId>
+  warpmetal notifications remove --server <serverId> --recipient <recipientId>
+    [--idempotency-key <key>]
+  warpmetal notifications events --server <serverId> --events <comma-separated-events>
+    [--idempotency-key <key>]
+  warpmetal notifications disable --server <serverId> [--idempotency-key <key>]
   warpmetal identity generate --hostname <name> [--ssh-key-name <name>]
   warpmetal identity list
   warpmetal server identity --server <serverId>
@@ -673,11 +679,40 @@ async function handleTaskStatus(client, store, options, context) {
   const result = booleanOption(options, "wait")
     ? await pollTask(client, taskId, token, timeout)
     : await client.getTask(taskId, token);
+  const output = { ...result.data };
+  let notificationMessage = "";
+  if (result.data.task.state === "ready" && result.data.task.serverId) {
+    try {
+      const notifications = (
+        await client.getNotifications(result.data.task.serverId, token)
+      ).data;
+      output.notifications = notifications;
+      if (notifications.setupRecommended) {
+        output.nextAction = {
+          action: "ask_human_for_notification_email",
+          optional: true,
+          reason:
+            "A human can receive renewal, wallet refill, and server lifecycle notifications.",
+          addCommand: `warpmetal notifications add --server ${result.data.task.serverId} --email <address> --json`,
+          skipCommand: `warpmetal notifications disable --server ${result.data.task.serverId} --json`,
+        };
+        notificationMessage =
+          `\nAsk the human whether they want renewal and lifecycle notifications. ` +
+          `If yes, run: warpmetal notifications add --server ${result.data.task.serverId} --email <address>`;
+      }
+    } catch (error) {
+      output.notificationSetup = {
+        action: "check_notifications",
+        unavailable: true,
+        reason: toErrorMessage(error),
+      };
+    }
+  }
   emit(
     context.stdout,
-    result.data,
+    output,
     context.json,
-    `${result.data.task.id}: ${result.data.task.state}${result.data.task.publicIp ? ` (${result.data.task.publicIp})` : ""}`,
+    `${result.data.task.id}: ${result.data.task.state}${result.data.task.publicIp ? ` (${result.data.task.publicIp})` : ""}${notificationMessage}`,
   );
   return result.data.task.state === "manual_review" ? 6 : 0;
 }
@@ -853,8 +888,9 @@ function activeNotificationSubscription(notifications) {
   const subscription = notifications?.subscription;
   return Boolean(
     notifications?.configured &&
-      subscription?.verified &&
-      !subscription?.disabled,
+      !subscription?.disabled &&
+      Array.isArray(subscription?.recipients) &&
+      subscription.recipients.length > 0,
   );
 }
 
@@ -863,14 +899,14 @@ function refillNotificationState(notifications, policy) {
   if (!notifications?.configured || !subscription || subscription.disabled) {
     return {
       available: false,
-      reason: "verified_email_required",
+      reason: "active_notification_recipient_required",
       subscription: subscription || null,
     };
   }
-  if (!subscription.verified) {
+  if (!Array.isArray(subscription.recipients) || subscription.recipients.length === 0) {
     return {
       available: false,
-      reason: "email_verification_required",
+      reason: "active_notification_recipient_required",
       subscription,
     };
   }
@@ -949,20 +985,10 @@ async function handleRenewalConfigure(client, store, options, context) {
     !withoutEmailNotifications &&
     !activeNotificationSubscription(notifications)
   ) {
-    const verificationPending = Boolean(
-      notifications.configured &&
-        notifications.subscription &&
-        !notifications.subscription.disabled,
-    );
-    const action = verificationPending
-      ? "email_verification_required"
-      : "email_required";
     const output = {
-      action,
+      action: "email_required",
       serverId,
-      reason: verificationPending
-        ? "Verify the existing notification email or resend verification with --email."
-        : "A verified email enables renewal and wallet-refill notifications.",
+      reason: "A human email enables renewal and wallet-refill notifications.",
       notifications,
       next: {
         configureEmail: `warpmetal renewal configure ... --email <address>`,
@@ -974,27 +1000,27 @@ async function handleRenewalConfigure(client, store, options, context) {
       context.stdout,
       output,
       context.json,
-      verificationPending
-        ? `Verify the notification email for ${serverId}, or rerun with --email to resend verification. To opt out explicitly, rerun with --without-email-notifications.`
-        : `An email is needed for renewal and wallet-refill notifications. Rerun with --email <address>, or opt out explicitly with --without-email-notifications.`,
+      `Ask the human for an email to receive renewal and lifecycle notifications for ${serverId}, then rerun with --email <address>. To opt out explicitly, rerun with --without-email-notifications.`,
     );
     return 6;
   }
   if (email) {
     notifications = (
-      await client.putNotifications(serverId, { email }, token)
+      await client.addNotificationRecipient(
+        serverId,
+        { email },
+        token,
+        stringOption(options, "idempotency-key") || idempotencyKey("notification-add"),
+      )
     ).data;
-  } else if (
-    withoutEmailNotifications &&
-    notifications.configured &&
-    notifications.subscription &&
-    !notifications.subscription.disabled
-  ) {
-    await client.deleteNotifications(serverId, token);
-    notifications = {
-      ...notifications,
-      subscription: { ...notifications.subscription, disabled: true },
-    };
+  } else if (withoutEmailNotifications) {
+    notifications = (
+      await client.deleteNotifications(
+        serverId,
+        token,
+        stringOption(options, "idempotency-key") || idempotencyKey("notification-disable"),
+      )
+    ).data;
   }
   const result = await client.putRenewalPolicy(serverId, body, token);
   await store.saveRenewalPolicy(
@@ -1009,8 +1035,8 @@ async function handleRenewalConfigure(client, store, options, context) {
     status: withoutEmailNotifications
       ? "opted_out"
       : activeNotificationSubscription(notifications)
-        ? "verified"
-        : "verification_required",
+        ? "active"
+        : "recipient_required",
   };
   const output = {
     ...result.data,
@@ -1023,7 +1049,7 @@ async function handleRenewalConfigure(client, store, options, context) {
     context.stdout,
     output,
     context.json,
-    `Configured bounded renewal for ${serverId} with wallet ${wallet}.${email && !notificationState.refillAvailable ? " Check the email verification link." : withoutEmailNotifications ? " Email and wallet-refill notifications were explicitly skipped." : ""}`,
+    `Configured bounded renewal for ${serverId} with wallet ${wallet}.${email ? " The notification recipient is active and its security advisory was queued." : withoutEmailNotifications ? " Email and wallet-refill notifications were explicitly skipped." : ""}`,
   );
   return 0;
 }
@@ -1257,9 +1283,9 @@ async function handleRenewalPrepare(client, store, options, context) {
     ? `\n${walletWorkflowInstructions(safe.paymentWorkflow)}. Show the returned payer address as both a QR code and copyable text, with the exact network, asset, and deficit.`
     : "";
   const refillInstructions = safe.refillWorkflow
-    ? `\nFor verified email refill, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}`
+    ? `\nFor human refill notification, set ${Object.entries(safe.refillWorkflow.environment).map(([key, value]) => `${key}=${value}`).join(" ")} and run: ${shellCommand(safe.refillWorkflow.argv)}`
     : safe.paymentWorkflow
-      ? `\nVerified email refill is unavailable (${safe.refillNotification.reason}). Configure and verify notifications, or fund the displayed payer address directly.`
+      ? `\nEmail refill is unavailable (${safe.refillNotification.reason}). Add a notification recipient, or fund the displayed payer address directly.`
       : "";
   const instructions = safe.paymentWorkflow
     ? `\nAuthorize: ${shellCommand(safe.paymentWorkflow.authorize.argv)}${fundingInstructions}${refillInstructions}\nSubmit: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
@@ -1464,34 +1490,109 @@ async function handleRenewalDue(client, store, options, context) {
   return due.length ? 8 : 0;
 }
 
-async function handleNotificationsConfigure(client, store, options, context) {
+function notificationEvents(options, { required = false } = {}) {
+  const eventValue = stringOption(options, "events", { required });
+  if (!eventValue) return undefined;
+  const events = eventValue.split(",").map((value) => value.trim());
+  if (events.some((value) => !value)) {
+    throw new CliError("--events must contain comma-separated event names.", {
+      exitCode: 2,
+    });
+  }
+  return events;
+}
+
+async function handleNotificationsAdd(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const email = stringOption(options, "email", { required: true });
-  const eventValue = stringOption(options, "events");
   const body = { email };
-  if (eventValue) body.events = eventValue.split(",").map((value) => value.trim());
+  const events = notificationEvents(options);
+  if (events) body.events = events;
   const token = await requireServerToken(store, serverId, options, context.env);
-  const result = await client.putNotifications(serverId, body, token);
+  const result = await client.addNotificationRecipient(
+    serverId,
+    body,
+    token,
+    stringOption(options, "idempotency-key") || idempotencyKey("notification-add"),
+  );
   emit(
     context.stdout,
     result.data,
     context.json,
-    `Verification email queued for ${result.data.subscription.email}.`,
+    result.data.created
+      ? `${result.data.recipient.email} is active for ${serverId}; WarpMetal queued a security advisory to that address.`
+      : `${result.data.recipient.email} was already active for ${serverId}.`,
   );
   return 0;
 }
 
-async function handleNotificationsStatus(client, store, options, context) {
+async function handleNotificationsList(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const token = await requireServerToken(store, serverId, options, context.env);
   const result = await client.getNotifications(serverId, token);
+  const count = result.data.subscription?.recipients?.length || 0;
   emit(
     context.stdout,
     result.data,
     context.json,
     result.data.configured
-      ? `${serverId}: notifications ${result.data.subscription.verified ? "verified" : "awaiting verification"}`
+      ? `${serverId}: ${count} active notification recipient${count === 1 ? "" : "s"}`
       : `${serverId}: notifications are not configured`,
+  );
+  return 0;
+}
+
+async function handleNotificationsRemove(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const recipientId = stringOption(options, "recipient", { required: true });
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.deleteNotificationRecipient(
+    serverId,
+    recipientId,
+    token,
+    stringOption(options, "idempotency-key") || idempotencyKey("notification-remove"),
+  );
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    `Removed ${recipientId} from ${serverId} notifications.`,
+  );
+  return 0;
+}
+
+async function handleNotificationsEvents(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const events = notificationEvents(options, { required: true });
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.patchNotifications(
+    serverId,
+    { events },
+    token,
+    stringOption(options, "idempotency-key") || idempotencyKey("notification-events"),
+  );
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    `Updated notification events for ${serverId}.`,
+  );
+  return 0;
+}
+
+async function handleNotificationsDisable(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const token = await requireServerToken(store, serverId, options, context.env);
+  const result = await client.deleteNotifications(
+    serverId,
+    token,
+    stringOption(options, "idempotency-key") || idempotencyKey("notification-disable"),
+  );
+  emit(
+    context.stdout,
+    result.data,
+    context.json,
+    `Disabled lifecycle notifications for ${serverId}.`,
   );
   return 0;
 }
@@ -2553,6 +2654,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "email",
         "without-email-notifications",
         "disabled",
+        "idempotency-key",
       ]);
       return handleRenewalConfigure(client, store, options, context);
     case "renewal status":
@@ -2597,6 +2699,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "request-envelope-out",
       ]);
       return handleRenewalRun(client, store, options, context);
+    case "notifications add":
     case "notifications configure":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
@@ -2604,15 +2707,43 @@ async function dispatch(positionals, options, passthrough, context) {
         "token-file",
         "email",
         "events",
+        "idempotency-key",
       ]);
-      return handleNotificationsConfigure(client, store, options, context);
+      return handleNotificationsAdd(client, store, options, context);
+    case "notifications list":
     case "notifications status":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
         "server",
         "token-file",
       ]);
-      return handleNotificationsStatus(client, store, options, context);
+      return handleNotificationsList(client, store, options, context);
+    case "notifications remove":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "recipient",
+        "idempotency-key",
+      ]);
+      return handleNotificationsRemove(client, store, options, context);
+    case "notifications events":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "events",
+        "idempotency-key",
+      ]);
+      return handleNotificationsEvents(client, store, options, context);
+    case "notifications disable":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "token-file",
+        "idempotency-key",
+      ]);
+      return handleNotificationsDisable(client, store, options, context);
     case "server login":
       rejectUnknownOptions(options, [...COMMON_OPTIONS, "server", "identity"]);
       return handleServerLogin(client, store, options, context);

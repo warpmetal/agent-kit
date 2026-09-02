@@ -27,9 +27,10 @@ warpmetal renewal configure \
   --json
 ```
 
-Without an active verified notification email, configuration asks for one
-before changing policy. `--email` queues verification; refill and expanded
-lifecycle notices remain disabled until the human opens the verification link.
+Without an active notification recipient, configuration asks for one before
+changing policy. `--email` immediately activates the address because the owner
+or SSH-derived server credential authorizes the change. WarpMetal sends a
+transactional advisory to the new address; it does not require verification.
 Use `--without-email-notifications` only as an explicit opt-out; no signed
 refill-email workflow is returned in that state. A refill target is a funding
 target, not spend permission, and cannot exceed the per-renewal cap. The human
@@ -75,8 +76,8 @@ paymentWorkflow.authorize.argv
 paymentWorkflow.submit.argv
 paymentWorkflow.fundingWorkflow
 refillNotification
-refillWorkflow.environment (verified email only)
-refillWorkflow.argv (verified email only)
+refillWorkflow.environment (active recipient only)
+refillWorkflow.argv (active recipient only)
 ```
 
 Invoke the authorize argv once. It writes an owner-only artifact. Then invoke

@@ -13,7 +13,7 @@
 - [x] The companion CLI changes for expired unsigned challenge replacement,
   Agent Wallet 0.2.8 managed wallet setup, sponsorship policy, exact
   asset-specific funding instructions, and
-  verified refill notifications are covered by tests.
+  multi-recipient refill notifications are covered by tests.
 - [x] Live health reported `purchasingReady: true` on 2026-08-27.
 - [ ] Recheck live health immediately before reviewer purchase-flow testing.
 
