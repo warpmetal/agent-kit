@@ -124,6 +124,12 @@ treasury; the merchant tenant's active allowance controls sponsorship
 admission but is not charged actual gas. Payment authority depends on execution
 context:
 
+WarpMetal can advertise any currently executable subset of those rails, from a
+single alternative through all three. Agent Kit requires the sponsorship and
+external-recipient extension bindings to match the advertised alternatives
+exactly, then preserves the chosen authorization artifact byte-for-byte for
+every pending or ambiguous retry.
+
 - When a human is actively chatting with the agent, show the exact live terms
   and ask for confirmation immediately before authorizing and submitting.
 - In an unattended run, a pre-funded dedicated wallet is standing spend

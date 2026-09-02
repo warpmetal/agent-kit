@@ -221,6 +221,72 @@ function paymentChallenge(resourceUrl) {
   };
 }
 
+function singleRailChallenge({ network, asset, payTo, extra }, resourceUrl) {
+  const accepted = {
+    scheme: "exact",
+    network,
+    amount: "12000000",
+    asset,
+    payTo,
+    maxTimeoutSeconds: 180,
+    extra,
+  };
+  const descriptor = {
+    type: "com.k1hub.external-receiving-address.v1",
+    tenantId: "018f4c76-8f9a-7d3a-8e0b-123456789abc",
+    network,
+    address: payTo,
+    controlChallengeDigest: `sha256:${"4".repeat(64)}`,
+  };
+  const paymentExtensions = {
+    "payment-identifier": { info: { required: true } },
+    "com.k1hub.external-recipient": {
+      info: {
+        version: 1,
+        recipients: [
+          {
+            network,
+            asset,
+            payTo,
+            recipientDescriptorDigest: digestJson(descriptor),
+            recipientDescriptor: descriptor,
+          },
+        ],
+      },
+    },
+    "com.x402api.gas-sponsorship": {
+      info: {
+        version: 1,
+        mode: "facilitator_pays",
+        requirements: [
+          { network, asset, payloadProfile: extra.payloadProfile },
+        ],
+        buyerNativeFeeRequired: false,
+        billingParty: "platform_treasury",
+        maximumReservationEvidenceDigest: `sha256:${"5".repeat(64)}`,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+        finalChargePolicy: "platform_treasury_actual_cost",
+      },
+      schema: {
+        $id: "urn:com:x402api:gas-sponsorship:v1",
+        type: "object",
+        additionalProperties: false,
+        required: sponsorshipInfoKeys,
+      },
+    },
+  };
+  return {
+    challenge: {
+      x402Version: 2,
+      resource: { url: resourceUrl, mimeType: "application/json" },
+      accepts: [accepted],
+      extensions: paymentExtensions,
+    },
+    accepted,
+    paymentExtensions,
+  };
+}
+
 function request() {
   const paymentRequired = paymentChallenge(
     "https://api.warpmetal.test/checkout/standard",
@@ -275,6 +341,127 @@ test("payment request envelope matches the x402api canonical contract", () => {
   assert.equal(value.terms[0].network, "eip155:8453");
   assert.equal(value.terms[0].agentWalletSupported, true);
   assert.equal(value.terms[0].buyerNativeFeeRequired, false);
+});
+
+test("single-rail Base USDC and Solana USDC/USDT flows preserve the exact artifact", async () => {
+  const rails = [
+    {
+      name: "base-usdc",
+      network: "eip155:8453",
+      asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      payTo: "0x1111111111111111111111111111111111111111",
+      extra: {
+        assetTransferMethod: "eip3009",
+        name: "USD Coin",
+        payloadProfile: "com.x402api.x402.base-usdc-eip3009-sponsored.v1",
+        version: "2",
+      },
+    },
+    ...[
+      ["solana-usdc", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+      ["solana-usdt", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"],
+    ].map(([name, asset]) => ({
+      name,
+      network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      asset,
+      payTo: "11111111111111111111111111111111",
+      extra: {
+        feePayer: "11111111111111111111111111111111",
+        memo: "k1h:00000000-0000-4000-8000-000000000001",
+        payloadProfile: "com.x402api.x402.solana-sponsored.v1",
+      },
+    })),
+  ];
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-three-rail-test-"));
+  try {
+    for (const rail of rails) {
+      const checkoutUrl = "https://api.warpmetal.test/checkout/standard";
+      const { challenge, accepted, paymentExtensions } = singleRailChallenge(
+        rail,
+        checkoutUrl,
+      );
+      const expected = createPaymentRequestEnvelope({
+        baseUrl: "https://api.warpmetal.test",
+        checkoutPath: "/checkout/standard",
+        checkoutBody: '{"taskId":"task_payment"}',
+        paymentRequired: Buffer.from(JSON.stringify(challenge)).toString("base64"),
+        challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
+        merchantReference: "task_payment",
+      });
+      const workflow = paymentWorkflow({
+        taskId: "task_payment",
+        terms: expected.terms,
+        requestEnvelopePath: join(directory, `${rail.name}.request.json`),
+        paymentArtifactPath: join(directory, `${rail.name}.payment.json`),
+      });
+      assert.equal(expected.terms.length, 1);
+      assert.equal(expected.terms[0].agentWalletSupported, true);
+      assert.equal(workflow.walletWorkflow.createOptions[0].network, rail.network);
+      assert.equal(workflow.fundingWorkflow.options[0].asset, rail.asset);
+
+      const signedExtensions = JSON.parse(JSON.stringify(paymentExtensions));
+      signedExtensions["payment-identifier"].info.id =
+        `buyer_payment_${rail.name.replace("-", "_")}`;
+      const artifact = {
+        version: 1,
+        attemptId: "00000000-0000-4000-8000-000000000001",
+        requestDigest: expected.requestDigest,
+        buyerPaymentIdentifier:
+          signedExtensions["payment-identifier"].info.id,
+        wallet: `wallet-${rail.name}`,
+        payerAddress: rail.payTo,
+        selectedRequirementDigest: expected.terms[0].requirementDigest,
+        paymentSignature: Buffer.from(
+          JSON.stringify({
+            x402Version: 2,
+            accepted,
+            payload: { signature: "fixture" },
+            extensions: signedExtensions,
+            resource: challenge.resource,
+          }),
+        ).toString("base64"),
+        createdAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      };
+      await writeFile(
+        workflow.paymentArtifactPath,
+        `${JSON.stringify(artifact)}\n`,
+        { mode: 0o600 },
+      );
+      const parsed = await readPaymentArtifact(
+        workflow.paymentArtifactPath,
+        expected,
+      );
+      assert.equal(parsed.paymentSignature, artifact.paymentSignature);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("payment request envelope rejects extra sponsorship bindings", () => {
+  const challenge = JSON.parse(
+    JSON.stringify(
+      paymentChallenge("https://api.warpmetal.test/checkout/standard"),
+    ),
+  );
+  challenge.extensions["com.x402api.gas-sponsorship"].info.requirements.push({
+    network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    payloadProfile: "com.x402api.x402.solana-sponsored.v1",
+  });
+  assert.throws(
+    () =>
+      createPaymentRequestEnvelope({
+        baseUrl: "https://api.warpmetal.test",
+        checkoutPath: "/checkout/standard",
+        checkoutBody: '{"taskId":"task_payment"}',
+        paymentRequired: Buffer.from(JSON.stringify(challenge)).toString("base64"),
+        challengeDigest: AUTHORITATIVE_CHALLENGE_DIGEST,
+        merchantReference: "task_payment",
+      }),
+    /do not exactly match/,
+  );
 });
 
 test("payment request envelopes retain matched legacy sponsorship compatibility", () => {

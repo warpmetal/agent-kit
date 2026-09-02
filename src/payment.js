@@ -338,6 +338,47 @@ function externalRecipientBinds(requirement, extensions) {
   return matches.length === 1;
 }
 
+function exactExtensionBindings(accepts, sponsorship, extensions) {
+  if (!sponsorship) return;
+  const sponsoredAccepts = new Set(
+    accepts.map(
+      (requirement) =>
+        `${requirement.network}|${requirement.asset.toLowerCase()}|${requirement.extra.payloadProfile}`,
+    ),
+  );
+  const sponsorshipBindings = new Set(
+    sponsorship.requirements.map(
+      (binding) =>
+        `${binding.network}|${binding.asset.toLowerCase()}|${binding.payloadProfile}`,
+    ),
+  );
+  const recipients = extensions["com.k1hub.external-recipient"]?.info?.recipients;
+  const acceptedRecipients = new Set(
+    accepts.map(
+      (requirement) =>
+        `${requirement.network}|${requirement.asset}|${requirement.payTo}`,
+    ),
+  );
+  const recipientBindings = new Set(
+    Array.isArray(recipients)
+      ? recipients.map(
+          (recipient) =>
+            `${recipient.network}|${recipient.asset}|${recipient.payTo}`,
+        )
+      : [],
+  );
+  if (
+    sponsoredAccepts.size !== sponsorshipBindings.size ||
+    [...sponsoredAccepts].some((identity) => !sponsorshipBindings.has(identity)) ||
+    acceptedRecipients.size !== recipientBindings.size ||
+    [...acceptedRecipients].some((identity) => !recipientBindings.has(identity))
+  ) {
+    throw invalid(
+      "The x402 sponsorship and recipient bindings do not exactly match PAYMENT-REQUIRED.",
+    );
+  }
+}
+
 function agentWalletSupports(requirement, sponsorship, extensions) {
   const profile = requirement.extra.payloadProfile;
   const baseExtra = Object.keys(requirement.extra).sort().join(",");
@@ -397,6 +438,7 @@ export function parsePaymentRequired(value, expectedUrl) {
     "The x402 challenge extension",
   );
   const sponsorship = extensions[GAS_SPONSORSHIP_EXTENSION]?.info;
+  exactExtensionBindings(accepts, sponsorship, extensions);
   return {
     challenge: parsed,
     paymentRequiredDigest: digestJson(parsed),
