@@ -64,6 +64,8 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "warpmetal server identity",
     "warpmetal renewal configure",
     "warpmetal renewal prepare",
+    "warpmetal notifications add",
+    "ask_human_for_notification_email",
     "refillWorkflow.argv",
     "x402api wallet notify-refill",
     "subscription reference",
@@ -102,4 +104,6 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
   assert.match(renewals, /Never pay outside policy|outside policy/i);
   assert.match(renewals, /do not sign again/i);
   assert.match(renewals, /cannot name a recipient\s+email/i);
+  assert.match(renewals, /does not require verification/i);
+  assert.match(skill, /recipient-scoped removal|without\s+affecting other recipients/i);
 });

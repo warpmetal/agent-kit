@@ -1,3 +1,11 @@
+# Unreleased CLI v0.8.0
+
+Adds post-provision human notification setup with SSH-authorized, immediately
+active recipients; up to five masked recipients per server; targeted removal;
+event controls; and branded recipient-added advisories. Email verification is
+no longer part of the current workflow. No plugin or CLI publication is part
+of this source change.
+
 # Initial release notes
 
 Initial public submission of the WarpMetal skills-only plugin. The plugin
@@ -10,7 +18,7 @@ reviewed `warpmetal` CLI v0.7.8 contract, including x402api Agent Wallet 0.2.8
 managed wallet setup, network-specific wallet creation, exact asset balance
 and deficit reporting, platform-treasury sponsorship, automatic replacement of
 expired unsigned merchant challenges, opaque challenge reconciliation,
-wallet-address funding guidance, and verified refill-email availability.
+wallet-address funding guidance, and refill-email availability.
 Reviewers can exercise read-only discovery and the unpaid checkout boundary
 without spending funds. Any payment requires the exact live terms, an external
 x402api Agent Wallet, and the confirmation or standing authority described by

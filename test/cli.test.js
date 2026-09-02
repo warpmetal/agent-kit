@@ -870,7 +870,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     nextAction: "sign_payment",
     reason: null,
   };
-  let notificationsVerified = true;
+  let notificationsActive = true;
   try {
     await store.savePreparedOrder(
       {
@@ -917,10 +917,11 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
           configured: true,
           subscription: {
             reference: "wmref_test-renewal",
-            email: "o***@example.com",
-            verified: notificationsVerified,
             disabled: false,
             events: ["wallet.refill_required"],
+            recipients: notificationsActive
+              ? [{ id: "nrcp_operator", email: "o***@example.com", status: "active" }]
+              : [],
           },
           supportedEvents: ["wallet.refill_required"],
         });
@@ -1010,7 +1011,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
       ],
     );
 
-    notificationsVerified = false;
+    notificationsActive = false;
     const unverifiedOut = capture();
     const unverifiedErr = capture();
     const unverifiedExit = await main(
@@ -1037,7 +1038,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     assert.equal(unverified.refillNotification.available, false);
     assert.equal(
       unverified.refillNotification.reason,
-      "email_verification_required",
+      "active_notification_recipient_required",
     );
     assert.equal(unverified.paymentWorkflow.fundingWorkflow.action, "fund_wallet");
   } finally {
@@ -1053,6 +1054,7 @@ test("renewal configure asks for email before mutating unless explicitly skipped
   const requests = [];
   let notificationDocument = {
     configured: false,
+    setupRecommended: true,
     subscription: null,
     supportedEvents: ["wallet.refill_required"],
   };
@@ -1095,23 +1097,26 @@ test("renewal configure asks for email before mutating unless explicitly skipped
         return jsonResponse(200, notificationDocument);
       }
       if (
-        request.method === "PUT" &&
-        path === "/servers/server_email/notifications"
+        request.method === "POST" &&
+        path === "/servers/server_email/notification-recipients"
       ) {
         notificationDocument = {
           configured: true,
+          setupRecommended: false,
           subscription: {
             reference: "wmref_with-email",
-            email: "o***@example.com",
-            verified: false,
             disabled: false,
             events: ["wallet.refill_required"],
+            recipients: [
+              { id: "nrcp_ops", email: "o***@example.com", status: "active" },
+            ],
           },
           supportedEvents: ["wallet.refill_required"],
         };
-        return jsonResponse(202, {
+        return jsonResponse(201, {
           ...notificationDocument,
-          verificationRequired: true,
+          created: true,
+          recipient: notificationDocument.subscription.recipients[0],
         });
       }
       if (
@@ -1125,7 +1130,7 @@ test("renewal configure asks for email before mutating unless explicitly skipped
             disabled: true,
           },
         };
-        return jsonResponse(200, { configured: true, disabled: true });
+        return jsonResponse(200, notificationDocument);
       }
       if (
         request.method === "PUT" &&
@@ -1186,10 +1191,10 @@ test("renewal configure asks for email before mutating unless explicitly skipped
     });
     assert.equal(emailExit, 0, emailErr.value());
     const emailConfigured = JSON.parse(emailOut.value());
-    assert.equal(emailConfigured.notificationState.status, "verification_required");
+    assert.equal(emailConfigured.notificationState.status, "active");
     assert.deepEqual(requests.slice(emailStart), [
       "GET /servers/server_email/notifications",
-      "PUT /servers/server_email/notifications",
+      "POST /servers/server_email/notification-recipients",
       "PUT /servers/server_email/renewal-policy",
     ]);
 
@@ -1214,6 +1219,180 @@ test("renewal configure asks for email before mutating unless explicitly skipped
       "DELETE /servers/server_email/notifications",
       "PUT /servers/server_email/renewal-policy",
     ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("ready order status tells an agent to ask the human for an optional notification email", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-ready-notification-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_ready_notice",
+          serverId: "server_ready_notice",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "ready_notice_owner_secret",
+      },
+      '{"taskId":"task_ready_notice"}',
+    );
+    const fetchImpl = async (url, request = {}) => {
+      const path = new URL(url).pathname;
+      if (request.method === "GET" && path === "/tasks/task_ready_notice") {
+        return jsonResponse(200, {
+          task: {
+            id: "task_ready_notice",
+            serverId: "server_ready_notice",
+            state: "ready",
+            publicIp: "192.0.2.80",
+          },
+        });
+      }
+      if (
+        request.method === "GET" &&
+        path === "/servers/server_ready_notice/notifications"
+      ) {
+        return jsonResponse(200, {
+          configured: false,
+          setupRecommended: true,
+          subscription: null,
+          supportedEvents: ["renewal.due"],
+        });
+      }
+      return jsonResponse(404, { error: { message: "Not found" } });
+    };
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "order",
+        "status",
+        "--task",
+        "task_ready_notice",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, fetchImpl },
+    );
+    assert.equal(exitCode, 0, stderr.value());
+    const output = JSON.parse(stdout.value());
+    assert.equal(output.nextAction.action, "ask_human_for_notification_email");
+    assert.equal(output.nextAction.optional, true);
+    assert.match(output.nextAction.addCommand, /notifications add/);
+    assert.match(output.nextAction.skipCommand, /notifications disable/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("notification add, list, events, remove, and disable use SSH-safe API operations", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-notification-commands-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const requests = [];
+  const recipient = {
+    id: "nrcp_ops",
+    email: "o***@example.com",
+    status: "active",
+    addedAt: "2026-09-02T12:00:00Z",
+  };
+  const subscription = {
+    reference: "wmref_notifications",
+    disabled: false,
+    setupDismissed: false,
+    events: ["renewal.due"],
+    recipientLimit: 5,
+    recipients: [recipient],
+  };
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_notifications",
+          serverId: "server_notifications",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "notification_owner_secret",
+      },
+      '{"taskId":"task_notifications"}',
+    );
+    const fetchImpl = async (url, request = {}) => {
+      const path = new URL(url).pathname;
+      const headers = new Headers(request.headers);
+      requests.push({ method: request.method, path, key: headers.get("idempotency-key") });
+      if (request.method === "POST" && path.endsWith("/notification-recipients")) {
+        return jsonResponse(201, { configured: true, created: true, recipient, subscription });
+      }
+      if (request.method === "GET" && path.endsWith("/notifications")) {
+        return jsonResponse(200, { configured: true, subscription });
+      }
+      if (request.method === "PATCH" && path.endsWith("/notifications")) {
+        return jsonResponse(200, {
+          configured: true,
+          subscription: { ...subscription, events: ["renewal.due", "server.ready"] },
+        });
+      }
+      if (request.method === "DELETE" && path.endsWith("/nrcp_ops")) {
+        return jsonResponse(200, { removed: true, recipientId: "nrcp_ops" });
+      }
+      if (request.method === "DELETE" && path.endsWith("/notifications")) {
+        return jsonResponse(200, {
+          configured: true,
+          subscription: { ...subscription, disabled: true, setupDismissed: true },
+        });
+      }
+      return jsonResponse(404, { error: { message: "Not found" } });
+    };
+    const base = [
+      "--server",
+      "server_notifications",
+      "--base-url",
+      "https://api.warpmetal.test",
+      "--state-dir",
+      stateDirectory,
+      "--json",
+    ];
+    for (const command of [
+      ["add", ...base, "--email", "ops@example.com"],
+      ["list", ...base],
+      ["events", ...base, "--events", "renewal.due,server.ready"],
+      ["remove", ...base, "--recipient", "nrcp_ops"],
+      ["disable", ...base],
+    ]) {
+      const stdout = capture();
+      const stderr = capture();
+      const exitCode = await main(["notifications", ...command], {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl,
+      });
+      assert.equal(exitCode, 0, stderr.value());
+    }
+    assert.deepEqual(
+      requests.map(({ method, path }) => `${method} ${path}`),
+      [
+        "POST /servers/server_notifications/notification-recipients",
+        "GET /servers/server_notifications/notifications",
+        "PATCH /servers/server_notifications/notifications",
+        "DELETE /servers/server_notifications/notification-recipients/nrcp_ops",
+        "DELETE /servers/server_notifications/notifications",
+      ],
+    );
+    assert.equal(requests[1].key, null);
+    assert.equal(
+      requests.filter((request) => request.method !== "GET").every((request) => request.key),
+      true,
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
