@@ -15,7 +15,7 @@ const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 512 * 1024;
 
 export const AGENT_WALLET_PACKAGE = "@x402api/agent-wallet-cli";
-export const AGENT_WALLET_VERSION = "0.2.8";
+export const AGENT_WALLET_VERSION = "0.2.9";
 const AGENT_WALLET_SPEC = `${AGENT_WALLET_PACKAGE}@${AGENT_WALLET_VERSION}`;
 const GAS_SPONSORSHIP_EXTENSION = "com.x402api.gas-sponsorship";
 const BASE_NETWORK = "eip155:8453";
@@ -842,6 +842,9 @@ export function paymentWorkflow({
     signerContract: {
       version: 1,
       probe: { argv: ["x402api", "help", "--json"] },
+      requiredCommands: [
+        "payment authorize --wallet <name> --request-envelope <file> --artifact-out <file>",
+      ],
     },
     signerReleaseStatus:
       "published launch payer; sponsored Base USDC and Solana USDC/USDT only",

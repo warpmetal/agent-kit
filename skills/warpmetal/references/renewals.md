@@ -59,7 +59,8 @@ The CLI does not install a daemon. Treat actions as follows:
 - `refill_required`: follow the signed refill workflow and stop.
 - `reconcile_pending`: preserve the artifact and reconcile; never authorize again.
 - `manual_review`: stop all payment and mutation retries.
-- `renewed`: verify the new `termEndsAt` and stop successfully.
+- `renewed` with `confirmed: true`: verify the new `termEndsAt` and stop
+  payment submission successfully, even when `finalized` is false.
 
 ## Authorize and submit renewal
 

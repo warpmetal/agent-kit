@@ -34,7 +34,7 @@ published wallet CLI with the exact version WarpMetal reports:
 npm install --global warpmetal
 warpmetal --help
 
-npm install --global @x402api/agent-wallet-cli@0.2.8
+npm install --global @x402api/agent-wallet-cli@0.2.9
 x402api help --json
 ```
 
@@ -58,7 +58,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.7.8 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.8.1 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 
@@ -129,6 +129,12 @@ single alternative through all three. Agent Kit requires the sponsorship and
 external-recipient extension bindings to match the advertised alternatives
 exactly, then preserves the chosen authorization artifact byte-for-byte for
 every pending or ambiguous retry.
+
+Submission output includes the server-validated `paymentId`, `confirmed`, and
+`finalized` fields when WarpMetal supplies lifecycle evidence. Retry only while
+confirmation is pending. As soon as `confirmed` is true, stop all payment
+submission—even when `finalized` is false—and let WarpMetal continue signed-
+receipt finality while provisioning or renewal proceeds.
 
 - When a human is actively chatting with the agent, show the exact live terms
   and ask for confirmation immediately before authorizing and submitting.

@@ -14,6 +14,8 @@ const WALLET_PAYMENT_STATE_FIELDS = [
   "paymentArtifactExpiresAt",
   "paymentArtifactSavedAt",
   "gatewayPaymentId",
+  "gatewayPaymentConfirmed",
+  "gatewayPaymentFinalized",
   "rejectedPaymentAttemptId",
   "paymentRejectionErrorCode",
   "paymentRejectionRequestId",
@@ -437,6 +439,43 @@ export class StateStore {
     });
   }
 
+  async saveOrderPaymentOutcome(taskId, paymentId, { confirmed, finalized }) {
+    if (
+      !X402API_PAYMENT_ID.test(paymentId || "") ||
+      typeof confirmed !== "boolean" ||
+      typeof finalized !== "boolean" ||
+      (finalized && !confirmed)
+    ) {
+      throw new CliError("WarpMetal returned invalid payment lifecycle evidence.", {
+        exitCode: 3,
+      });
+    }
+    await this.update((state) => {
+      const order = state.orders[taskId];
+      if (!order) {
+        throw new CliError(`No local order state exists for ${taskId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (order.gatewayPaymentId && order.gatewayPaymentId !== paymentId) {
+        throw new CliError("WarpMetal changed the x402api payment ID for this attempt.", {
+          exitCode: 3,
+        });
+      }
+      if (
+        (order.gatewayPaymentConfirmed === true && !confirmed) ||
+        (order.gatewayPaymentFinalized === true && !finalized)
+      ) {
+        throw new CliError("WarpMetal payment lifecycle evidence moved backward.", {
+          exitCode: 3,
+        });
+      }
+      order.gatewayPaymentId = paymentId;
+      order.gatewayPaymentConfirmed = confirmed;
+      order.gatewayPaymentFinalized = finalized;
+    });
+  }
+
   async saveOrderPaymentRejection(taskId, rejection) {
     const safe = validatedPaymentRejection(rejection);
     await this.update((state) => {
@@ -478,6 +517,43 @@ export class StateStore {
         });
       }
       renewal.gatewayPaymentId = paymentId;
+    });
+  }
+
+  async saveRenewalPaymentOutcome(serverId, paymentId, { confirmed, finalized }) {
+    if (
+      !X402API_PAYMENT_ID.test(paymentId || "") ||
+      typeof confirmed !== "boolean" ||
+      typeof finalized !== "boolean" ||
+      (finalized && !confirmed)
+    ) {
+      throw new CliError("WarpMetal returned invalid payment lifecycle evidence.", {
+        exitCode: 3,
+      });
+    }
+    await this.update((state) => {
+      const renewal = state.renewals[serverId];
+      if (!renewal) {
+        throw new CliError(`No local renewal state exists for ${serverId}.`, {
+          exitCode: 2,
+        });
+      }
+      if (renewal.gatewayPaymentId && renewal.gatewayPaymentId !== paymentId) {
+        throw new CliError("WarpMetal changed the x402api payment ID for this renewal.", {
+          exitCode: 3,
+        });
+      }
+      if (
+        (renewal.gatewayPaymentConfirmed === true && !confirmed) ||
+        (renewal.gatewayPaymentFinalized === true && !finalized)
+      ) {
+        throw new CliError("WarpMetal renewal payment lifecycle evidence moved backward.", {
+          exitCode: 3,
+        });
+      }
+      renewal.gatewayPaymentId = paymentId;
+      renewal.gatewayPaymentConfirmed = confirmed;
+      renewal.gatewayPaymentFinalized = finalized;
     });
   }
 
@@ -631,6 +707,8 @@ export class StateStore {
         planId: order.planId,
         paymentAttemptId: order.paymentAttemptId,
         paymentId: order.gatewayPaymentId,
+        paymentConfirmed: order.gatewayPaymentConfirmed,
+        paymentFinalized: order.gatewayPaymentFinalized,
         challengeHandle: order.challengeHandle,
         walletPaymentAttemptId: order.walletPaymentAttemptId,
         walletName: order.walletName,
@@ -671,6 +749,8 @@ export class StateStore {
         policy: renewal.policy,
         paymentAttemptId: renewal.paymentAttemptId,
         paymentId: renewal.gatewayPaymentId,
+        paymentConfirmed: renewal.gatewayPaymentConfirmed,
+        paymentFinalized: renewal.gatewayPaymentFinalized,
         challengeHandle: renewal.challengeHandle,
         paymentArtifactExpiresAt: renewal.paymentArtifactExpiresAt,
         rejectedPaymentAttemptId: renewal.rejectedPaymentAttemptId,

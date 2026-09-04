@@ -11,7 +11,7 @@ with ad hoc HTTP commands.
 
 ## Start safely
 
-1. Run `warpmetal --version` and require version `0.7.8` or newer for this
+1. Run `warpmetal --version` and require version `0.8.1` or newer for this
    plugin. If it is missing or older, explain the compatibility requirement,
    ask before installing or upgrading software, and use only the official npm
    package from `https://www.npmjs.com/package/warpmetal`.
@@ -178,7 +178,8 @@ SSH-authorized human recipients;
 never add an email address to it. Never make a partial payment.
 
 After funding, prepare again, authorize exactly once, submit with WarpMetal,
-and confirm the returned `termEndsAt`. On `reconcile_pending` or
+and require `confirmed: true` before accepting the returned `termEndsAt`.
+Stop payment submission at confirmation even when `finalized` is false. On `reconcile_pending` or
 `manual_review`, do not create another authorization.
 
 ## Provision and manage

@@ -178,6 +178,8 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       return jsonResponse(202, {
         status: "provisioning",
         paymentId: "00000000-0000-4000-8000-000000000012",
+        confirmed: true,
+        finalized: false,
         task: { id: "task_test", state: "provisioning" },
       });
     }
@@ -287,17 +289,20 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     assert.equal(challenge.paymentWorkflow.signerExecutable, "x402api");
     assert.deepEqual(challenge.paymentWorkflow.signerPackage, {
       name: "@x402api/agent-wallet-cli",
-      version: "0.2.8",
-      spec: "@x402api/agent-wallet-cli@0.2.8",
+      version: "0.2.9",
+      spec: "@x402api/agent-wallet-cli@0.2.9",
       registryUrl: "https://www.npmjs.com/package/@x402api/agent-wallet-cli",
       install: {
-        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.8"],
+        argv: ["npm", "install", "--global", "@x402api/agent-wallet-cli@0.2.9"],
       },
     });
     assert.deepEqual(challenge.paymentWorkflow.signerContract.probe.argv, [
       "x402api",
       "help",
       "--json",
+    ]);
+    assert.deepEqual(challenge.paymentWorkflow.signerContract.requiredCommands, [
+      "payment authorize --wallet <name> --request-envelope <file> --artifact-out <file>",
     ]);
     assert.deepEqual(challenge.paymentWorkflow.walletWorkflow.setup.argv, [
       "x402api",
@@ -417,6 +422,8 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
     assert.equal(submitExit, 0, submitErr.value());
     assert.equal(JSON.parse(submitOut.value()).status, "provisioning");
+    assert.equal(JSON.parse(submitOut.value()).confirmed, true);
+    assert.equal(JSON.parse(submitOut.value()).finalized, false);
     assert.equal(
       JSON.parse(submitOut.value()).paymentId,
       "00000000-0000-4000-8000-000000000012",
@@ -533,12 +540,297 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       JSON.parse(stateListOut.value()).orders[0].paymentId,
       "00000000-0000-4000-8000-000000000012",
     );
+    assert.equal(JSON.parse(stateListOut.value()).orders[0].paymentConfirmed, true);
+    assert.equal(JSON.parse(stateListOut.value()).orders[0].paymentFinalized, false);
     assert.equal(
       (await readFile(join(stateDirectory, "state.json"), "utf8")).includes(
         "owner_secret_value",
       ),
       true,
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("confirmed checkout stops exact payment replay before receipt finality", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-confirmed-payment-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const signaturePath = join(directory, "payment-signature.txt");
+  await store.savePreparedOrder(
+    {
+      task: {
+        id: "task_confirmed_payment",
+        serverId: "server_confirmed_payment",
+        planId: "agent",
+        checkoutPath: "/checkout/agent",
+      },
+      ownerToken: "owner-secret",
+    },
+    '{"taskId":"task_confirmed_payment"}',
+  );
+  await writeFile(signaturePath, "signed-payment\n", { mode: 0o600 });
+  let submissions = 0;
+  const fetchImpl = async () => {
+    submissions += 1;
+    return jsonResponse(202, {
+      status: "payment_finalizing",
+      paymentId: "00000000-0000-4000-8000-000000000012",
+      confirmed: true,
+      finalized: false,
+      task: { id: "task_confirmed_payment", state: "paid" },
+    });
+  };
+
+  try {
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "submit",
+        "--task",
+        "task_confirmed_payment",
+        "--payment-signature-file",
+        signaturePath,
+        "--wait",
+        "--timeout-seconds",
+        "1",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, cwd: directory, fetchImpl },
+    );
+
+    assert.equal(exitCode, 0, stderr.value());
+    assert.equal(submissions, 1);
+    const output = JSON.parse(stdout.value());
+    assert.equal(output.confirmed, true);
+    assert.equal(output.finalized, false);
+    const summary = await store.summary();
+    assert.equal(summary.orders[0].paymentConfirmed, true);
+    assert.equal(summary.orders[0].paymentFinalized, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("checkout restart retries the exact artifact and stops after confirmation", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-payment-restart-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  await store.savePreparedOrder(
+    {
+      task: {
+        id: "task_payment_restart",
+        serverId: "server_payment_restart",
+        planId: "agent",
+        checkoutPath: "/checkout/agent",
+      },
+      ownerToken: "owner-secret",
+    },
+    '{"taskId":"task_payment_restart"}',
+  );
+  const submitted = [];
+  const fetchImpl = async (_url, request = {}) => {
+    const headers = new Headers(request.headers);
+    const paymentSignature = headers.get("payment-signature");
+    if (!paymentSignature) {
+      return jsonResponse(
+        402,
+        {
+          status: "payment_required",
+          paymentAttemptId: "payment_restart",
+          challengeDigest: authoritativeChallengeDigest,
+        },
+        {
+          "payment-required": paymentRequiredHeader,
+          "x-x402api-challenge-handle": "charge_restart",
+          "x-x402api-challenge-digest": authoritativeChallengeDigest,
+        },
+      );
+    }
+    submitted.push({ body: request.body, paymentSignature });
+    if (submitted.length === 1) {
+      return jsonResponse(202, {
+        status: "payment_pending",
+        paymentId: "00000000-0000-4000-8000-000000000013",
+        confirmed: false,
+        finalized: false,
+      });
+    }
+    return jsonResponse(202, {
+      status: "provisioning",
+      paymentId: "00000000-0000-4000-8000-000000000013",
+      confirmed: true,
+      finalized: false,
+      task: { id: "task_payment_restart", state: "provisioning" },
+    });
+  };
+
+  try {
+    const challengeOut = capture();
+    const challengeExit = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_payment_restart",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: challengeOut.stream,
+        stderr: capture().stream,
+        env: {},
+        cwd: directory,
+        fetchImpl,
+      },
+    );
+    assert.equal(challengeExit, 7);
+    const challenge = JSON.parse(challengeOut.value());
+    const artifactSignature = Buffer.from(
+      JSON.stringify({
+        x402Version: 2,
+        accepted: paymentRequirement,
+        payload: { signature: "restart-fixture" },
+        extensions: {
+          ...paymentRequired.extensions,
+          "payment-identifier": {
+            info: { required: true, id: "buyer_payment_restart_123" },
+          },
+        },
+        resource: paymentRequired.resource,
+      }),
+      "utf8",
+    ).toString("base64");
+    const artifactPath = challenge.paymentWorkflow.paymentArtifactPath;
+    await writeFile(
+      artifactPath,
+      `${JSON.stringify({
+        version: 1,
+        attemptId: "00000000-0000-4000-8000-000000000014",
+        requestDigest: challenge.paymentRequestDigest,
+        buyerPaymentIdentifier: "buyer_payment_restart_123",
+        wallet: "warpmetal-base",
+        payerAddress: "0x2222222222222222222222222222222222222222",
+        selectedRequirementDigest: challenge.paymentTerms[0].requirementDigest,
+        paymentSignature: artifactSignature,
+        createdAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
+    const submitArgv = [
+      "checkout",
+      "submit",
+      "--task",
+      "task_payment_restart",
+      "--payment-artifact",
+      artifactPath,
+      "--base-url",
+      "https://api.warpmetal.test",
+      "--state-dir",
+      stateDirectory,
+      "--json",
+    ];
+
+    const pendingOut = capture();
+    const pendingExit = await main(submitArgv, {
+      stdout: pendingOut.stream,
+      stderr: capture().stream,
+      env: {},
+      cwd: directory,
+      fetchImpl,
+    });
+    assert.equal(pendingExit, 8);
+    assert.equal(JSON.parse(pendingOut.value()).confirmed, false);
+
+    const confirmedOut = capture();
+    const confirmedErr = capture();
+    const confirmedExit = await main(submitArgv, {
+      stdout: confirmedOut.stream,
+      stderr: confirmedErr.stream,
+      env: {},
+      cwd: directory,
+      fetchImpl,
+    });
+    assert.equal(confirmedExit, 0, confirmedErr.value());
+    assert.equal(JSON.parse(confirmedOut.value()).confirmed, true);
+    assert.equal(JSON.parse(confirmedOut.value()).finalized, false);
+    assert.equal(submitted.length, 2);
+    assert.deepEqual(submitted[0], submitted[1]);
+    assert.equal(submitted[0].paymentSignature, artifactSignature);
+    const summary = await new StateStore(stateDirectory).summary();
+    assert.equal(summary.orders[0].paymentConfirmed, true);
+    assert.equal(summary.orders[0].paymentFinalized, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("checkout rejects contradictory confirmation and finality flags", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-payment-flags-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  const signaturePath = join(directory, "payment-signature.txt");
+  await store.savePreparedOrder(
+    {
+      task: {
+        id: "task_invalid_payment_flags",
+        serverId: "server_invalid_payment_flags",
+        planId: "agent",
+        checkoutPath: "/checkout/agent",
+      },
+      ownerToken: "owner-secret",
+    },
+    '{"taskId":"task_invalid_payment_flags"}',
+  );
+  await writeFile(signaturePath, "signed-payment\n", { mode: 0o600 });
+
+  try {
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "submit",
+        "--task",
+        "task_invalid_payment_flags",
+        "--payment-signature-file",
+        signaturePath,
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        cwd: directory,
+        fetchImpl: async () =>
+          jsonResponse(202, {
+            status: "provisioning",
+            paymentId: "00000000-0000-4000-8000-000000000012",
+            confirmed: false,
+            finalized: true,
+          }),
+      },
+    );
+
+    assert.equal(exitCode, 3);
+    assert.equal(stdout.value(), "");
+    assert.match(stderr.value(), /contradictory payment lifecycle evidence/);
+    assert.equal((await store.summary()).orders[0].paymentId, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -871,6 +1163,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     reason: null,
   };
   let notificationsActive = true;
+  let renewalConfirmed = false;
   try {
     await store.savePreparedOrder(
       {
@@ -930,6 +1223,20 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
         request.method === "POST" &&
         path === "/checkout/agent/renew"
       ) {
+        if (renewalConfirmed) {
+          return jsonResponse(200, {
+            status: "renewed",
+            paymentId: "00000000-0000-4000-8000-000000000022",
+            confirmed: true,
+            finalized: false,
+            task: {
+              id: "task_renewal",
+              serverId: "server_renewal",
+              state: "ready",
+              termEndsAt: "2099-03-03T00:00:00.000Z",
+            },
+          });
+        }
         return jsonResponse(
           402,
           {
@@ -1041,6 +1348,67 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
       "active_notification_recipient_required",
     );
     assert.equal(unverified.paymentWorkflow.fundingWorkflow.action, "fund_wallet");
+
+    const artifactSignature = Buffer.from(
+      JSON.stringify({
+        x402Version: 2,
+        accepted: paymentRequirement,
+        payload: { signature: "renewal-fixture" },
+        extensions: {
+          ...renewalRequired.extensions,
+          "payment-identifier": {
+            info: { required: true, id: "buyer_renewal_payment_123" },
+          },
+        },
+        resource: renewalRequired.resource,
+      }),
+      "utf8",
+    ).toString("base64");
+    const artifactPath = unverified.paymentWorkflow.paymentArtifactPath;
+    await writeFile(
+      artifactPath,
+      `${JSON.stringify({
+        version: 1,
+        attemptId: "00000000-0000-4000-8000-000000000021",
+        requestDigest: unverified.paymentRequestDigest,
+        buyerPaymentIdentifier: "buyer_renewal_payment_123",
+        wallet: "renewal-wallet",
+        payerAddress: "0x2222222222222222222222222222222222222222",
+        selectedRequirementDigest: unverified.paymentTerms[0].requirementDigest,
+        paymentSignature: artifactSignature,
+        createdAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 120_000).toISOString(),
+      })}\n`,
+      { mode: 0o600 },
+    );
+    renewalConfirmed = true;
+    const submitOut = capture();
+    const submitErr = capture();
+    const submitExit = await main(
+      [
+        "renewal",
+        "submit",
+        "--server",
+        "server_renewal",
+        "--payment-artifact",
+        artifactPath,
+        "--wait",
+        "--base-url",
+        baseUrl,
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: submitOut.stream, stderr: submitErr.stream, env: {}, fetchImpl },
+    );
+    assert.equal(submitExit, 0, submitErr.value());
+    const submitted = JSON.parse(submitOut.value());
+    assert.equal(submitted.status, "renewed");
+    assert.equal(submitted.confirmed, true);
+    assert.equal(submitted.finalized, false);
+    const state = await store.summary();
+    assert.equal(state.renewals[0].paymentConfirmed, true);
+    assert.equal(state.renewals[0].paymentFinalized, false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -215,6 +215,42 @@ function suggestedDelay(result, fallback = 2) {
   );
 }
 
+function paymentLifecycle(result) {
+  const confirmed = result.data?.confirmed;
+  const finalized = result.data?.finalized;
+  if (confirmed === undefined && finalized === undefined) {
+    return { confirmed: undefined, finalized: undefined };
+  }
+  if (
+    typeof confirmed !== "boolean" ||
+    typeof finalized !== "boolean" ||
+    (finalized && !confirmed)
+  ) {
+    throw new CliError("WarpMetal returned contradictory payment lifecycle evidence.", {
+      exitCode: 3,
+    });
+  }
+  if (confirmed && !result.data?.paymentId) {
+    throw new CliError("WarpMetal confirmed payment without a payment ID.", {
+      exitCode: 3,
+    });
+  }
+  if (["provisioning", "renewed"].includes(result.data?.status) && !confirmed) {
+    throw new CliError("WarpMetal returned a terminal payment status without confirmation.", {
+      exitCode: 3,
+    });
+  }
+  return { confirmed, finalized };
+}
+
+function paymentSubmissionPending(result, lifecycle) {
+  return (
+    result.status === 202 &&
+    lifecycle.confirmed !== true &&
+    ["payment_pending", "payment_finalizing"].includes(result.data?.status)
+  );
+}
+
 async function readHeaderValueFile(path, label) {
   const value = (await readFile(resolve(path), "utf8")).trim();
   if (!value || value.includes("\n") || value.includes("\r")) {
@@ -806,8 +842,12 @@ async function handleCheckoutSubmit(client, store, options, context) {
       token,
       paymentSignature,
     });
+    const lifecycle = paymentLifecycle(response);
     if (response.data?.paymentId) {
       await store.saveOrderPaymentId(taskId, response.data.paymentId);
+      if (lifecycle.confirmed !== undefined) {
+        await store.saveOrderPaymentOutcome(taskId, response.data.paymentId, lifecycle);
+      }
     }
     const safe = await attachPaymentWorkflow(
       client,
@@ -826,9 +866,7 @@ async function handleCheckoutSubmit(client, store, options, context) {
         replacementAllowed: safe.replacementAllowed,
       });
     }
-    const retryable =
-      response.status === 202 &&
-      ["payment_pending", "payment_finalizing"].includes(response.data?.status);
+    const retryable = paymentSubmissionPending(response, lifecycle);
     if (wait && retryable) {
       ensureBeforeDeadline(deadline, `Checkout ${taskId}`);
       await delay(suggestedDelay(response));
@@ -839,6 +877,8 @@ async function handleCheckoutSubmit(client, store, options, context) {
       ...safe,
       task: response.data?.task,
       paymentId: response.data?.paymentId,
+      confirmed: lifecycle.confirmed,
+      finalized: lifecycle.finalized,
       message: response.data?.message,
       ...(walletPayment
         ? {
@@ -1404,8 +1444,16 @@ async function handleRenewalSubmit(client, store, options, context) {
         paymentSignature: walletPayment.paymentSignature,
       },
     );
+    const lifecycle = paymentLifecycle(response);
     if (response.data?.paymentId) {
       await store.saveRenewalPaymentId(serverId, response.data.paymentId);
+      if (lifecycle.confirmed !== undefined) {
+        await store.saveRenewalPaymentOutcome(
+          serverId,
+          response.data.paymentId,
+          lifecycle,
+        );
+      }
     }
     if (response.status === 402 && response.data?.status === "payment_rejected") {
       await store.saveRenewalPaymentRejection(serverId, {
@@ -1417,9 +1465,7 @@ async function handleRenewalSubmit(client, store, options, context) {
         replacementAllowed: response.data?.replacementAllowed,
       });
     }
-    const retryable =
-      response.status === 202 &&
-      ["payment_pending", "payment_finalizing"].includes(response.data?.status);
+    const retryable = paymentSubmissionPending(response, lifecycle);
     if (booleanOption(options, "wait") && retryable) {
       ensureBeforeDeadline(deadline, `Renewal ${serverId}`);
       await delay(suggestedDelay(response));
@@ -1430,6 +1476,8 @@ async function handleRenewalSubmit(client, store, options, context) {
       serverId,
       task: response.data?.task,
       paymentId: response.data?.paymentId,
+      confirmed: lifecycle.confirmed,
+      finalized: lifecycle.finalized,
       paymentAttemptId:
         response.data?.paymentAttemptId ||
         response.headers["x-warpmetal-payment-attempt"],

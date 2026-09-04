@@ -102,6 +102,19 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "task_payment_refresh",
       "00000000-0000-4000-8000-000000000012",
     );
+    await store.saveOrderPaymentOutcome(
+      "task_payment_refresh",
+      "00000000-0000-4000-8000-000000000012",
+      { confirmed: true, finalized: false },
+    );
+    await assert.rejects(
+      store.saveOrderPaymentOutcome(
+        "task_payment_refresh",
+        "00000000-0000-4000-8000-000000000012",
+        { confirmed: false, finalized: false },
+      ),
+      /moved backward/,
+    );
     await store.saveOrderPaymentRejection("task_payment_refresh", {
       paymentAttemptId: "pay_first",
       errorCode: "structured_compliance_not_allowed",
@@ -140,6 +153,8 @@ test("a replacement payment challenge clears stale wallet-attempt metadata", asy
       "paymentArtifactExpiresAt",
       "paymentArtifactSavedAt",
       "gatewayPaymentId",
+      "gatewayPaymentConfirmed",
+      "gatewayPaymentFinalized",
       "rejectedPaymentAttemptId",
       "paymentRejectionErrorCode",
       "paymentRejectionRequestId",

@@ -72,7 +72,7 @@ retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
 saved challenge and stale wallet-attempt metadata; use only the newly returned
 workflow.
 
-The current integration targets `@x402api/agent-wallet-cli@0.2.8`. A compatible
+The current integration targets `@x402api/agent-wallet-cli@0.2.9`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.
 For the current declaration, x402api pays actual gas from its platform treasury
@@ -82,6 +82,12 @@ mixed policy pairs. WarpMetal rejects a challenge with no compatible sponsored
 term. Because the checkout is authenticated, do not substitute `x402api pay`,
 `payment submit`, or `payment reconcile` for the returned WarpMetal submission
 command.
+
+`warpmetal checkout submit` and `warpmetal renewal submit` surface
+`paymentId`, `confirmed`, and `finalized` from WarpMetal and persist those safe
+lifecycle fields in private CLI state. `confirmed: true` is terminal for
+payment submission and starts the business operation; `finalized: false` only
+means signed-receipt reconciliation continues asynchronously.
 
 `--payment-artifact` accepts the owner-only JSON artifact produced by a
 compatible pinned x402api Agent Wallet release. WarpMetal validates its request
