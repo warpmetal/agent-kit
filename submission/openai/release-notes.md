@@ -1,4 +1,12 @@
-# Unreleased CLI v0.8.1
+# CLI v0.8.2
+
+Clarifies that WarpMetal installs the owner SSH key for `root` on every
+supported image. Owner shell examples and Agent Runtime installation guidance
+now consistently use `root@<server-ip>` and `--ssh-user root` instead of
+inferring a distribution-default account such as `ubuntu`. CLI behavior is
+unchanged.
+
+# CLI v0.8.1
 
 Adds confirmed-first x402 payment handling for checkout and renewal. WarpMetal
 now pins x402api Agent Wallet 0.2.9, stops exact-artifact submission once the

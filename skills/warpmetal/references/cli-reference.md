@@ -202,7 +202,7 @@ process listings.
 warpmetal runtime enable --server <serverId> [--idempotency-key <key>] --json
 warpmetal runtime get --server <serverId> [--wait] [--timeout-seconds <n>] --json
 warpmetal runtime install \
-  --server <serverId> [--identity <owner-key>] --ssh-user <admin-user> \
+  --server <serverId> [--identity <owner-key>] --ssh-user root \
   --confirm INSTALL [--wait] [--timeout-seconds <n>] --json
 
 warpmetal sandbox create \

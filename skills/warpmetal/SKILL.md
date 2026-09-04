@@ -209,6 +209,13 @@ key-only policy: `PasswordAuthentication no`,
 `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`, and
 `AuthenticationMethods publickey`.
 
+The WarpMetal owner SSH account is `root` on every supported image. SSH public
+keys do not bind a login username. Use `root@<server-ip>` for an owner shell and
+pass `--ssh-user root` whenever a CLI command asks for the owner SSH account;
+never infer `ubuntu` or another distribution-default username. This does not
+apply to `sandbox connect`, which uses the gateway username from its connection
+profile.
+
 For routine management, prove possession of the installed SSH key without
 reading it:
 

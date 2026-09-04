@@ -45,6 +45,8 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "powerOffFirst: true",
     "PasswordAuthentication no",
     "AuthenticationMethods publickey",
+    "root@<server-ip>",
+    "--ssh-user root",
     "--power-off-first",
     "--acknowledge-agent-runtime-reset",
     "sandbox access refresh",
@@ -84,6 +86,7 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     skill,
     /Never request,\s+store, invent, or expect a VPS login password/i,
   );
+  assert.doesNotMatch(combined, /--ssh-user (?:ubuntu|<os-admin-user>|<admin-user>)/);
   assert.match(runtime, /permanently deletes the workspace/i);
   assert.match(payments, /never\s+authorize again/i);
   assert.match(payments, /Require contract version 1/i);
