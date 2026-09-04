@@ -59,7 +59,7 @@
         "Do not transfer funds, open private files, authorize a payment, or submit checkout."
       ],
       "expectedResultShape": "A first-run wallet readiness and funding guide whose commands preserve one advertised network/asset pair, with an explicit statement that no payment was authorized or submitted.",
-      "fixtures": "A prepared unpaid task, Node.js 22, WarpMetal CLI 0.7.8, and x402api Agent Wallet 0.2.8. Use a fresh reviewer-owned X402API_HOME and do not provide live funds."
+      "fixtures": "A prepared unpaid task, Node.js 22, WarpMetal CLI 0.8.1, and x402api Agent Wallet 0.2.9. Use a fresh reviewer-owned X402API_HOME and do not provide live funds."
     },
     {
       "name": "Agent Runtime capacity discovery",

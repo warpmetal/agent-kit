@@ -117,6 +117,9 @@ Confirm the plan, hostname, OS, and public key before preparing it.
 - For `payment_pending`, retry the exact checkout body and the exact same
   payment artifact. Preserve the returned `paymentId` as the durable x402api
   reconciliation key. Do not create a replacement payment.
+- For `confirmed: true`, stop payment submission even when `finalized` is
+  false. Finality and reorg checks are read-only WarpMetal backend work; they
+  never authorize another payment.
 - A signed HTTP 402 rejects that signature. A `paymentId` can be absent;
   preserve the safe `errorCode`, `requestId`, and `replacementAllowed` result.
   Request a new live challenge and create the one permitted replacement only

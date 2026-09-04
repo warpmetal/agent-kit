@@ -25,7 +25,7 @@ contract.
 WarpMetal runs on Node.js 20 or 22. The x402api Agent Wallet currently requires
 Node.js 22. Use the exact published package reported by
 `paymentWorkflow.signerPackage.spec`; the current contract is
-`@x402api/agent-wallet-cli@0.2.8`. Do not add it as a WarpMetal dependency,
+`@x402api/agent-wallet-cli@0.2.9`. Do not add it as a WarpMetal dependency,
 install executable wallet code from an unpinned repository URL, or substitute
 a similarly named package.
 
@@ -39,7 +39,9 @@ skill automatically.
 
 1. Install the exact `paymentWorkflow.signerPackage.install.argv` under Node
    22. Run `command -v x402api` and the returned
-   `paymentWorkflow.signerContract.probe.argv`. Require contract version 1.
+   `paymentWorkflow.signerContract.probe.argv`. Require contract version 1 and
+   every entry in `paymentWorkflow.signerContract.requiredCommands` to appear
+   in the probe's `commands` array.
 2. Run the exact `paymentWorkflow.walletWorkflow.setup.argv`. The idempotent
    `x402api wallet setup --json` command creates an owner-only managed unlock
    file inside the x402api home directory and never prints its generated
@@ -152,7 +154,7 @@ reservation or any buyer-funded, unsupported, or unbound alternative.
 
 x402api pays actual gas from its platform treasury. The merchant tenant's
 active sponsorship allowance controls admission, but actual gas is not a
-tenant debit. During the coordinated rollout, accept only the exact 0.2.8
+tenant debit. During the coordinated rollout, accept only the exact 0.2.9
 platform-treasury declaration or the matched legacy tenant-credit declaration;
 never accept a mixed billing and final-charge policy.
 
@@ -193,9 +195,15 @@ current `termEndsAt` generation are different.
   wallet-attempt metadata when it saves the new challenge. Inspect the new
   terms and authorize only the new workflow; never reuse an expired envelope or
   artifact.
-- `payment_pending` or `payment_finalizing`: keep the same checkout bytes and
-  artifact. Preserve the returned durable `paymentId`; `--wait` records it in
-  private WarpMetal state and performs bounded retries with that exact authorization.
+- `payment_pending`, or legacy `payment_finalizing`, without
+  `confirmed: true`: keep the same checkout bytes and artifact. Preserve the
+  returned durable `paymentId`; `--wait` records it in private WarpMetal state
+  and performs bounded retries with that exact authorization.
+- `confirmed: true`: stop payment submission immediately, including when
+  `finalized` is false or a legacy pending-like status is present. WarpMetal
+  has admitted provisioning or renewal exactly once and will reconcile payment
+  detail plus the signed final receipt asynchronously. Never authorize a
+  replacement because receipt finality is pending.
 - Timeout or process restart after authorization: use the saved x402api attempt
   ID and artifact. Reconcile with WarpMetal and reuse its submit argv. Never
   authorize again merely because submission is unknown.
