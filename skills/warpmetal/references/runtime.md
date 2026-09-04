@@ -68,6 +68,36 @@ The CLI holds the one-time bootstrap only in memory, verifies the signed
 artifact, uploads it through OpenSSH without a shell-enabled local spawn, and
 does not print or store the bootstrap.
 
+The signed installer is designed to preserve container workloads already
+running on a supported host. It selects `crun` for WarpMetal's private rootless
+Podman service, refuses APT removals and DNF erasures, protects installed
+Docker/containerd/Podman and package-manager versions, and compares a minimal
+root-only liveness snapshot after the guarded package action and immediately
+before registration. The snapshot contains recognized runtime-process start
+metadata and, when Docker is active, container IDs, init PIDs, and start
+timestamps. Docker receives container-level checks; other recognized engines
+receive process-level checks and need separate certification for broader
+coexistence claims. The snapshot never collects names, images, environment,
+mounts, or logs.
+
+Treat these refusal codes as safety gates, not prompts to force or repair the
+host automatically:
+
+- `runtime_package_plan_unsafe`: the proposed package transaction was refused;
+- `runtime_workload_state_unverifiable`: an active Docker workload could not be
+  inspected safely;
+- `runtime_workload_drift_detected`: a pre-existing runtime process or Docker
+  container changed during the installation window;
+- `runtime_package_postcondition_failed`: a protected container package changed
+  unexpectedly; stop and review the host package logs;
+- `runtime_legacy_migration_required`: preview Podman state needs a separate,
+  explicitly reviewed migration and was not reset.
+
+There is no force bypass. If `runtime_reboot_required` is returned, schedule
+the reboot as a separate maintenance action and retry only after the host and
+its existing workloads are healthy. The ordinary installer never installs a
+kernel or runs `podman system reset`.
+
 ## Sizes and lifetime
 
 Use `small`, `medium`, `large`, or `xlarge` exactly as the live catalog

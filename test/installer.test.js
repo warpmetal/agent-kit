@@ -34,7 +34,7 @@ function artifactFixture() {
   };
 }
 
-function spawnRecorder({ failInstall = false } = {}) {
+function spawnRecorder({ failInstall = false, installError = "install failed" } = {}) {
   const calls = [];
   const spawnImpl = (command, args, options) => {
     calls.push({ command, args, options });
@@ -51,7 +51,7 @@ function spawnRecorder({ failInstall = false } = {}) {
     const isInstall =
       command === "ssh" && args.some((argument) => argument.endsWith("/install.sh"));
     queueMicrotask(() => {
-      if (failInstall && isInstall) child.stderr.end("install failed");
+      if (failInstall && isInstall) child.stderr.end(installError);
       else child.stderr.end();
       child.stdout.end();
       child.emit("close", failInstall && isInstall ? 1 : 0);
@@ -132,6 +132,28 @@ test("runtime installation still removes remote staging after failure", async ()
   const recorder = spawnRecorder({ failInstall: true });
   const fixture = installFixture({ spawnImpl: recorder.spawnImpl });
   await assert.rejects(() => installRuntime(fixture.arguments), /install failed/);
+  const cleanup = recorder.calls.at(-1);
+  assert.equal(cleanup.command, "ssh");
+  assert.deepEqual(cleanup.args.slice(-6, -2), ["sudo", "rm", "-rf", "--"]);
+});
+
+test("runtime installation maps fail-closed host checks without raw package output", async () => {
+  const recorder = spawnRecorder({
+    failInstall: true,
+    installError:
+      "apt emitted bounded diagnostic output\nruntime_package_plan_unsafe\n",
+  });
+  const fixture = installFixture({ spawnImpl: recorder.spawnImpl });
+  await assert.rejects(
+    () => installRuntime(fixture.arguments),
+    (error) => {
+      assert.equal(error.code, "runtime_package_plan_unsafe");
+      assert.match(error.message, /refused a package transaction/);
+      assert.match(error.message, /runtime_package_plan_unsafe/);
+      assert.doesNotMatch(error.message, /apt emitted/);
+      return true;
+    },
+  );
   const cleanup = recorder.calls.at(-1);
   assert.equal(cleanup.command, "ssh");
   assert.deepEqual(cleanup.args.slice(-6, -2), ["sudo", "rm", "-rf", "--"]);
