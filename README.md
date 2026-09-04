@@ -325,6 +325,17 @@ warpmetal sandbox access keygen \
   --json
 ```
 
+Installation gives pre-existing Docker containers exact liveness checks and
+tracks common container-runtime processes without collecting application
+configuration. The signed installer uses `crun` for its private rootless Podman
+engine, refuses package removals or changes to an installed container stack,
+and checks minimal liveness metadata after package installation and again
+immediately before registration. Safety refusals have no force bypass; review
+the reported `runtime_*` code instead of changing or restarting a third-party
+runtime automatically. With `--json`, that code is returned as structured
+`error.code`. A pending reboot and legacy preview Podman state are separate
+maintenance operations, not implicit install steps.
+
 See `skills/warpmetal/references/runtime.md` for the complete lifecycle,
 cleanup, access-grant, and strict host-key connection workflow.
 

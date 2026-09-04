@@ -24,6 +24,71 @@ const REQUIRED_FILES = [
   "warpmetal-sandbox.conf",
 ];
 
+const INSTALLER_ERROR_MESSAGES = new Map([
+  [
+    "runtime_install_lock_unavailable",
+    "The server cannot create the Agent Runtime installation lock.",
+  ],
+  [
+    "runtime_install_state_unavailable",
+    "The server cannot create private temporary state for the installation checks.",
+  ],
+  [
+    "runtime_install_in_progress",
+    "Another Agent Runtime installation is already running on this server.",
+  ],
+  [
+    "runtime_reboot_required",
+    "The server already requires a reboot. Reboot it as a separate maintenance action, then retry.",
+  ],
+  [
+    "runtime_package_index_failed",
+    "The server package index could not be refreshed; no Agent Runtime services were changed.",
+  ],
+  [
+    "runtime_package_plan_unsafe",
+    "Installation refused a package transaction that could change the existing container stack.",
+  ],
+  [
+    "runtime_package_apply_failed",
+    "The guarded dependency transaction failed; the Agent Runtime supervisor was not registered.",
+  ],
+  [
+    "runtime_package_postcondition_failed",
+    "An installed container package changed unexpectedly. Do not retry until the host package state is reviewed.",
+  ],
+  [
+    "runtime_workload_state_unverifiable",
+    "Installation could not safely inspect the existing container workload state.",
+  ],
+  [
+    "runtime_workload_drift_detected",
+    "An existing container workload changed during installation. Do not retry until the host runtime is reviewed.",
+  ],
+  [
+    "runtime_oci_runtime_unavailable",
+    "The certified crun OCI runtime is unavailable on this server.",
+  ],
+  [
+    "runtime_podman_unavailable",
+    "The private Podman service did not become available.",
+  ],
+  [
+    "runtime_legacy_migration_required",
+    "Existing preview Agent Runtime state requires a separately reviewed migration; it was not reset.",
+  ],
+]);
+
+function mappedInstallerError(result) {
+  const lines = `${result.stderr}\n${result.stdout}`
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  for (const [code, message] of INSTALLER_ERROR_MESSAGES) {
+    if (lines.includes(code)) return { code, message: `${message} (${code})` };
+  }
+  return undefined;
+}
+
 function validateArtifact(artifact) {
   if (
     !artifact ||
@@ -130,7 +195,7 @@ function appendBounded(current, chunk) {
 async function spawnChecked(
   command,
   args,
-  { stdin, spawnImpl = nodeSpawn, redact = [] } = {},
+  { stdin, spawnImpl = nodeSpawn, redact = [], mapError } = {},
 ) {
   const result = await new Promise((resolvePromise, reject) => {
     const child = spawnImpl(command, args, {
@@ -151,13 +216,18 @@ async function spawnChecked(
     else child.stdin?.end();
   });
   if (result.status !== 0) {
+    const mappedError = mapError?.(result);
     let message =
+      mappedError?.message ||
       result.stderr.trim() ||
       result.stdout.trim() ||
       `${command} exited unsuccessfully`;
     for (const secret of redact)
       if (secret) message = message.split(secret).join("[redacted]");
-    throw new CliError(message.slice(0, 500), { exitCode: 4 });
+    throw new CliError(message.slice(0, 500), {
+      exitCode: 4,
+      code: mappedError?.code,
+    });
   }
   return result;
 }
@@ -286,7 +356,12 @@ export async function installRuntime({
         "--bundle",
         remoteBundle,
       ],
-      { stdin: `${bootstrapToken}\n`, spawnImpl, redact: [bootstrapToken] },
+      {
+        stdin: `${bootstrapToken}\n`,
+        spawnImpl,
+        redact: [bootstrapToken],
+        mapError: mappedInstallerError,
+      },
     );
     await spawnChecked(
       "ssh",

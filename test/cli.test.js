@@ -113,6 +113,32 @@ function jsonResponse(status, body, headers = {}) {
   });
 }
 
+test("JSON errors include stable CliError codes as structured data", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-error-test-"));
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    const exitCode = await main(
+      [
+        "server",
+        "identity",
+        "--server",
+        "srv_missing123",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {} },
+    );
+    assert.equal(exitCode, 4);
+    assert.equal(stdout.value(), "");
+    const result = JSON.parse(stderr.value());
+    assert.equal(result.error.code, "identity_required");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("CLI prepares, challenges, and submits without exposing the owner token", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-test-"));
   const requests = [];
