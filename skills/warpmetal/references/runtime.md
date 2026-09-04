@@ -48,12 +48,15 @@ the existing separate interactive-or-autonomous payment authority check.
 
 For an existing ready server:
 
+Use the WarpMetal owner account `root` for every supported host image; do not
+substitute a distribution-default account such as `ubuntu`.
+
 ```sh
 warpmetal runtime enable --server <serverId> --json
 warpmetal runtime install \
   --server <serverId> \
   --identity <owner-private-key-path> \
-  --ssh-user <os-admin-user> \
+  --ssh-user root \
   --confirm INSTALL \
   --wait \
   --json

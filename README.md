@@ -98,6 +98,11 @@ checkout returns `serverId`, the CLI binds that ID to the identity so
 an `--identity` flag. Use `--ssh-public-key-file` instead when supplying a
 user-managed public key.
 
+WarpMetal installs the owner key for `root` on every supported image. The SSH
+key does not encode a login username: use `root@<server-ip>` for an owner shell
+and `--ssh-user root` for runtime installation, not a distribution convention
+such as `ubuntu`.
+
 Pass `--json` for structured, secret-redacted output. Use
 `WARPMETAL_API_URL` for an alternate API origin and `WARPMETAL_HOME` for an
 alternate state directory.
@@ -304,7 +309,7 @@ compatible external signer.
 warpmetal runtime enable --server <serverId> --json
 warpmetal runtime install \
   --server <serverId> \
-  --ssh-user ubuntu \
+  --ssh-user root \
   --confirm INSTALL \
   --wait \
   --json
