@@ -128,6 +128,54 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   );
 });
 
+for (const state of ["cancellation_pending", "cancelled"]) {
+  test(`runtime installation accepts ${state} while the paid term is active`, async () => {
+    const recorder = spawnRecorder();
+    const fixture = installFixture({
+      spawnImpl: recorder.spawnImpl,
+      client: {
+        baseUrl: "https://api.warpmetal.com",
+        getServer: async () => ({
+          data: {
+            task: {
+              state,
+              publicIp: "203.0.113.10",
+              termEndsAt: "2099-01-01T00:00:00.000Z",
+            },
+          },
+        }),
+      },
+    });
+    const result = await installRuntime(fixture.arguments);
+    assert.equal(result.installed, true);
+    assert.ok(recorder.calls.some((call) => call.command === "scp"));
+  });
+}
+
+test("runtime installation rejects a cancelled server after its paid term", async () => {
+  const recorder = spawnRecorder();
+  const fixture = installFixture({
+    spawnImpl: recorder.spawnImpl,
+    client: {
+      baseUrl: "https://api.warpmetal.com",
+      getServer: async () => ({
+        data: {
+          task: {
+            state: "cancelled",
+            publicIp: "203.0.113.10",
+            termEndsAt: "2000-01-01T00:00:00.000Z",
+          },
+        },
+      }),
+    },
+  });
+  await assert.rejects(
+    () => installRuntime(fixture.arguments),
+    /active paid term/,
+  );
+  assert.equal(recorder.calls.length, 0);
+});
+
 test("runtime installation still removes remote staging after failure", async () => {
   const recorder = spawnRecorder({ failInstall: true });
   const fixture = installFixture({ spawnImpl: recorder.spawnImpl });

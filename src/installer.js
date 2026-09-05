@@ -123,6 +123,14 @@ function validateArtifact(artifact) {
   return { ...artifact, url: url.toString() };
 }
 
+function serverAllowsRuntimeInstall(server, currentTime = Date.now()) {
+  if (!server?.publicIp) return false;
+  if (server.state === "ready") return true;
+  if (!["cancellation_pending", "cancelled"].includes(server.state)) return false;
+  const termEndsAt = Date.parse(server.termEndsAt || "");
+  return Number.isFinite(termEndsAt) && termEndsAt > currentTime;
+}
+
 export function verifyRuntimeArtifact(content, metadata) {
   const artifact = validateArtifact(metadata);
   const digest = createHash("sha256").update(content).digest("hex");
@@ -270,8 +278,8 @@ export async function installRuntime({
     throw new CliError("The server ID is invalid.", { exitCode: 2 });
   }
   const server = (await client.getServer(serverId, token)).data?.task;
-  if (server?.state !== "ready" || !server.publicIp) {
-    throw new CliError("The VPS must be ready before runtime installation.", {
+  if (!serverAllowsRuntimeInstall(server)) {
+    throw new CliError("The VPS must be ready and within its active paid term before runtime installation.", {
       exitCode: 5,
     });
   }
