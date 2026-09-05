@@ -296,6 +296,11 @@ compatible external signer.
 - Sandboxes use the fixed runtime image and fixed sizes. Persistent is the
   default; temporary sandboxes require explicit confirmation and permanently
   delete their workspace after 15 minutes to 24 hours.
+- `sandbox action --action refresh_image --confirm refresh_image --wait`
+  explicitly replaces one sandbox's root filesystem with the current immutable
+  production image. It briefly disconnects active sessions but preserves the
+  external workspace, lifetime, and start time. The wait completes only when
+  the observed digest and generation both match the accepted target.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
   second acknowledgment, after which the CLI guides supervisor reinstall and
   pinned connection-profile refresh. Post-reload owner SSH host keys must be
@@ -317,6 +322,13 @@ warpmetal sandbox create \
   --server <serverId> \
   --name planner \
   --size small \
+  --wait \
+  --json
+warpmetal sandbox action \
+  --server <serverId> \
+  --sandbox <sandboxId> \
+  --action refresh_image \
+  --confirm refresh_image \
   --wait \
   --json
 warpmetal sandbox access keygen \
