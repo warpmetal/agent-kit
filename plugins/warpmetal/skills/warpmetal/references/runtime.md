@@ -139,6 +139,25 @@ Use `sandbox list`, `sandbox get --wait`, and guarded `sandbox action` commands
 to observe and change desired state. HTTP 202 and CLI exit 8 mean accepted or
 pending, not complete.
 
+Refresh an existing sandbox to the current immutable production image only
+after the owner approves the brief connection interruption:
+
+```sh
+warpmetal sandbox action \
+  --server <serverId> \
+  --sandbox <sandboxId> \
+  --action refresh_image \
+  --confirm refresh_image \
+  --wait \
+  --json
+```
+
+The supervisor must already support image refresh. The action pre-pulls and
+replaces only the container root filesystem while retaining the external
+workspace, sandbox lifetime, and original start time. `--wait` requires both
+the observed digest and generation to match the accepted target. A change to
+the global production image does not refresh existing sandboxes implicitly.
+
 Manual deletion is irreversible:
 
 ```sh

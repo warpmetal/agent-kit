@@ -215,7 +215,7 @@ warpmetal sandbox list --server <serverId> --json
 warpmetal sandbox get --server <serverId> --sandbox <sandboxId> [--wait] --json
 warpmetal sandbox action \
   --server <serverId> --sandbox <sandboxId> \
-  --action <start|stop|restart|make_persistent> --confirm <same-action> \
+  --action <start|stop|restart|make_persistent|refresh_image> --confirm <same-action> \
   [--wait] --json
 warpmetal sandbox delete \
   --server <serverId> --sandbox <sandboxId> --confirm DELETE [--wait] --json

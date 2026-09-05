@@ -347,10 +347,14 @@ export class WarpMetalClient {
   }
 
   sandboxAction(serverId, sandboxId, action, token, idempotencyKey) {
+    const body =
+      action === "refresh_image"
+        ? { action, confirm: "refresh_image" }
+        : { action };
     return this.request(
       "POST",
       `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/actions`,
-      { body: { action }, token, idempotencyKey },
+      { body, token, idempotencyKey },
     );
   }
 

@@ -479,6 +479,115 @@ test("sandbox creation uses the fixed public contract and reports pending as exi
   }
 });
 
+test("sandbox image refresh requires exact confirmation before API access", async () => {
+  let requested = false;
+  const stderr = capture();
+  const code = await main(
+    [
+      "sandbox",
+      "action",
+      "--server",
+      "srv_runtime12345",
+      "--sandbox",
+      "sbx_review12345",
+      "--action",
+      "refresh_image",
+      "--confirm",
+      "not-refresh_image",
+      "--base-url",
+      "http://localhost",
+      "--json",
+    ],
+    {
+      stdout: capture().stream,
+      stderr: stderr.stream,
+      env: { WARPMETAL_OWNER_TOKEN: "owner-management-secret" },
+      fetchImpl: async () => {
+        requested = true;
+        return jsonResponse(500, {});
+      },
+    },
+  );
+  assert.equal(code, 2);
+  assert.equal(requested, false);
+  assert.match(stderr.value(), /confirm refresh_image/i);
+});
+
+test("sandbox image refresh waits for both digest and generation", async () => {
+  const targetDigest = `registry.example/sandbox@sha256:${"b".repeat(64)}`;
+  const oldDigest = `registry.example/sandbox@sha256:${"a".repeat(64)}`;
+  const requests = [];
+  let polls = 0;
+  const fetchImpl = async (url, request = {}) => {
+    const path = new URL(url).pathname;
+    requests.push({ path, method: request.method, body: request.body });
+    if (request.method === "POST" && path.endsWith("/actions")) {
+      return jsonResponse(202, {
+        sandbox: {
+          id: "sbx_review12345",
+          desiredState: "running",
+          observedState: "running",
+          generation: 2,
+          observedGeneration: 1,
+          imageDigest: oldDigest,
+          desiredImageDigest: targetDigest,
+        },
+      });
+    }
+    if (request.method === "GET" && path.endsWith("/sbx_review12345")) {
+      polls += 1;
+      return jsonResponse(200, {
+        sandbox: {
+          id: "sbx_review12345",
+          desiredState: "running",
+          observedState: "running",
+          generation: 2,
+          observedGeneration: 2,
+          imageDigest: polls === 1 ? oldDigest : targetDigest,
+          desiredImageDigest: targetDigest,
+        },
+      });
+    }
+    return jsonResponse(404, { error: { message: "not found" } });
+  };
+  const stdout = capture();
+  const stderr = capture();
+  const code = await main(
+    [
+      "sandbox",
+      "action",
+      "--server",
+      "srv_runtime12345",
+      "--sandbox",
+      "sbx_review12345",
+      "--action",
+      "refresh_image",
+      "--confirm",
+      "refresh_image",
+      "--wait",
+      "--timeout-seconds",
+      "5",
+      "--base-url",
+      "http://localhost",
+      "--json",
+    ],
+    {
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      env: { WARPMETAL_OWNER_TOKEN: "owner-management-secret" },
+      fetchImpl,
+    },
+  );
+  assert.equal(code, 0, stderr.value());
+  assert.equal(polls, 2);
+  const mutation = requests.find((request) => request.method === "POST");
+  assert.deepEqual(JSON.parse(mutation.body), {
+    action: "refresh_image",
+    confirm: "refresh_image",
+  });
+  assert.equal(JSON.parse(stdout.value()).sandbox.imageDigest, targetDigest);
+});
+
 test("applied access grant writes a token-free profile without printing it", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-access-grant-"));
   const stateDirectory = join(directory, "state");

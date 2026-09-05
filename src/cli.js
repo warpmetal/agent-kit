@@ -114,6 +114,8 @@ Usage:
   warpmetal sandbox create --server <serverId> --name <name> --size <size>
     [--lifetime temporary] [--expires-in-seconds <n>] [--confirm TEMPORARY] [--wait]
   warpmetal sandbox create --server <serverId> --file <batch.json> [--confirm TEMPORARY]
+  warpmetal sandbox action --server <serverId> --sandbox <sandboxId>
+    --action <start|stop|restart|make_persistent|refresh_image> --confirm <same-action> [--wait]
   warpmetal sandbox list|get|action|delete ...
   warpmetal sandbox access keygen --output <private-key-path> --confirm GENERATE
   warpmetal sandbox access grant|list|get|revoke ...
@@ -2205,9 +2207,17 @@ async function handleSandboxAction(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const sandboxId = stringOption(options, "sandbox", { required: true });
   const action = stringOption(options, "action", { required: true });
-  if (!["start", "stop", "restart", "make_persistent"].includes(action)) {
+  if (
+    ![
+      "start",
+      "stop",
+      "restart",
+      "make_persistent",
+      "refresh_image",
+    ].includes(action)
+  ) {
     throw new CliError(
-      "--action must be start, stop, restart, or make_persistent.",
+      "--action must be start, stop, restart, make_persistent, or refresh_image.",
       {
         exitCode: 2,
       },
@@ -2231,6 +2241,11 @@ async function handleSandboxAction(client, store, options, context) {
   );
   if (booleanOption(options, "wait")) {
     const accepted = result.data.sandbox;
+    if (action === "refresh_image" && !accepted.desiredImageDigest) {
+      throw new CliError(
+        "WarpMetal accepted image refresh without an immutable desired image digest.",
+      );
+    }
     const expectedState =
       accepted.desiredState === "stopped" ? "stopped" : "running";
     result = await pollSandbox(
@@ -2241,7 +2256,9 @@ async function handleSandboxAction(client, store, options, context) {
       integerOption(options, "timeout-seconds", 900),
       (sandbox) =>
         sandbox.observedState === expectedState &&
-        Number(sandbox.observedGeneration) >= Number(accepted.generation),
+        Number(sandbox.observedGeneration) >= Number(accepted.generation) &&
+        (action !== "refresh_image" ||
+          sandbox.imageDigest === accepted.desiredImageDigest),
     );
   }
   await store.saveSandboxes(serverId, [result.data.sandbox]);
