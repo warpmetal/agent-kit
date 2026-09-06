@@ -93,6 +93,8 @@ const paymentRequiredHeader = Buffer.from(
   "utf8",
 ).toString("base64");
 const authoritativeChallengeDigest = `sha256:${"6".repeat(64)}`;
+const hostedCheckoutUrl = `https://pay.x402api.com/c/chk_${"a".repeat(32)}`;
+const hostedCheckoutExpiresAt = "2099-01-01T00:00:00.000Z";
 
 function capture() {
   let value = "";
@@ -182,6 +184,26 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         warning: "Store this token safely.",
       });
     }
+    if (request.method === "GET" && parsed.pathname === "/tasks/task_test") {
+      return jsonResponse(200, {
+        task: {
+          id: "task_test",
+          serverId: "server_test",
+          state: "ready",
+          publicIp: "192.0.2.10",
+        },
+      });
+    }
+    if (
+      request.method === "GET" &&
+      parsed.pathname === "/servers/server_test/notifications"
+    ) {
+      return jsonResponse(200, {
+        configured: false,
+        setupRecommended: true,
+        supportedEvents: ["renewal.due", "wallet.refill_required"],
+      });
+    }
     if (
       request.method === "POST" &&
       parsed.pathname === "/checkout/agent"
@@ -193,6 +215,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
             status: "payment_required",
             paymentAttemptId: "payment_test",
             challengeDigest: authoritativeChallengeDigest,
+            humanCheckout: {
+              url: hostedCheckoutUrl,
+              qrPayload: hostedCheckoutUrl,
+              expiresAt: hostedCheckoutExpiresAt,
+            },
           },
           {
             "payment-required": paymentRequiredHeader,
@@ -298,6 +325,27 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     );
     const challenge = JSON.parse(challengeOut.value());
     assert.equal(challenge.challengeHandle, "charge_test");
+    assert.deepEqual(challenge.humanCheckout, {
+      url: hostedCheckoutUrl,
+      qrPayload: hostedCheckoutUrl,
+      expiresAt: hostedCheckoutExpiresAt,
+      afterPayment: {
+        argv: [
+          "warpmetal",
+          "order",
+          "status",
+          "--task",
+          "task_test",
+          "--wait",
+          "--base-url",
+          baseUrl,
+          "--state-dir",
+          stateDirectory,
+          "--json",
+        ],
+        notificationNextAction: "ask_human_for_notification_email",
+      },
+    });
     assert.deepEqual(challenge.paymentTerms[0], {
       scheme: "exact",
       network: "eip155:8453",
@@ -417,9 +465,56 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       false,
     );
     assert.equal(JSON.stringify(requestEnvelope).includes("charge_test"), false);
+    assert.equal(JSON.stringify(requestEnvelope).includes(hostedCheckoutUrl), false);
     assert.equal(
       Object.hasOwn(requestEnvelope, "challengeHandle"),
       false,
+    );
+    assert.equal(
+      Object.hasOwn(await new StateStore(stateDirectory).order("task_test"), "humanCheckout"),
+      false,
+    );
+
+    const humanChallengeOut = capture();
+    const humanChallengeErr = capture();
+    const humanChallengeExit = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_test",
+        "--base-url",
+        baseUrl,
+        "--state-dir",
+        stateDirectory,
+      ],
+      {
+        stdout: humanChallengeOut.stream,
+        stderr: humanChallengeErr.stream,
+        env: {},
+        cwd: directory,
+        fetchImpl,
+      },
+    );
+    assert.equal(humanChallengeExit, 7, humanChallengeErr.value());
+    assert.match(humanChallengeOut.value(), /Direct wallet checkout \(optional/);
+    assert.equal(humanChallengeOut.value().includes(hostedCheckoutUrl), true);
+    assert.match(humanChallengeOut.value(), /warpmetal order status/);
+    assert.match(humanChallengeOut.value(), /lifecycle-notification email/);
+
+    const statusOut = capture();
+    const statusErr = capture();
+    const statusExit = await main(challenge.humanCheckout.afterPayment.argv.slice(1), {
+      stdout: statusOut.stream,
+      stderr: statusErr.stream,
+      env: {},
+      cwd: directory,
+      fetchImpl,
+    });
+    assert.equal(statusExit, 0, statusErr.value());
+    assert.equal(
+      JSON.parse(statusOut.value()).nextAction.action,
+      "ask_human_for_notification_email",
     );
 
     const submitOut = capture();
@@ -523,10 +618,11 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
     const checkoutRequests = requests.filter(
       ({ url }) => url === "/checkout/agent",
     );
-    assert.equal(checkoutRequests.length, 3);
+    assert.equal(checkoutRequests.length, 4);
     assert.deepEqual(
       checkoutRequests.map(({ body }) => body),
       [
+        '{"taskId":"task_test"}',
         '{"taskId":"task_test"}',
         '{"taskId":"task_test"}',
         '{"taskId":"task_test"}',
@@ -538,11 +634,12 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
         "Bearer owner_secret_value",
         "Bearer owner_secret_value",
         "Bearer owner_secret_value",
+        "Bearer owner_secret_value",
       ],
     );
     assert.deepEqual(
       checkoutRequests.map(({ paymentSignature }) => paymentSignature),
-      [undefined, "signed_header_value", artifactSignature],
+      [undefined, undefined, "signed_header_value", artifactSignature],
     );
 
     const stateListOut = capture();
@@ -914,6 +1011,118 @@ test("checkout challenge fails closed without the x402api challenge handle", asy
   }
 });
 
+test("checkout challenge rejects an untrusted hosted-checkout capability", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-hosted-checkout-test-"));
+  const stateDirectory = join(directory, "state");
+  const store = new StateStore(stateDirectory);
+  try {
+    await store.savePreparedOrder(
+      {
+        task: {
+          id: "task_bad_hosted_checkout",
+          serverId: "server_bad_hosted_checkout",
+          planId: "agent",
+          checkoutPath: "/checkout/agent",
+        },
+        ownerToken: "owner_bad_hosted_checkout",
+      },
+      '{"taskId":"task_bad_hosted_checkout"}',
+    );
+    const stdout = capture();
+    const stderr = capture();
+    const exitCode = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_bad_hosted_checkout",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl: async () =>
+          jsonResponse(
+            402,
+            {
+              status: "payment_required",
+              paymentAttemptId: "payment_bad_hosted_checkout",
+              challengeDigest: authoritativeChallengeDigest,
+              humanCheckout: {
+                url: `https://attacker.example/c/chk_${"a".repeat(32)}`,
+                qrPayload: `https://attacker.example/c/chk_${"a".repeat(32)}`,
+                expiresAt: hostedCheckoutExpiresAt,
+              },
+            },
+            {
+              "payment-required": paymentRequiredHeader,
+              "x-x402api-challenge-handle": "charge_bad_hosted_checkout",
+              "x-x402api-challenge-digest": authoritativeChallengeDigest,
+            },
+          ),
+      },
+    );
+
+    assert.equal(exitCode, 1);
+    assert.equal(stdout.value(), "");
+    assert.match(stderr.value(), /invalid hosted checkout URL/);
+
+    const expiryOut = capture();
+    const expiryErr = capture();
+    const expiryExit = await main(
+      [
+        "checkout",
+        "challenge",
+        "--task",
+        "task_bad_hosted_checkout",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      {
+        stdout: expiryOut.stream,
+        stderr: expiryErr.stream,
+        env: {},
+        fetchImpl: async () =>
+          jsonResponse(
+            402,
+            {
+              status: "payment_required",
+              paymentAttemptId: "payment_bad_hosted_expiry",
+              challengeDigest: authoritativeChallengeDigest,
+              humanCheckout: {
+                url: hostedCheckoutUrl,
+                qrPayload: hostedCheckoutUrl,
+                expiresAt: "09/07/2099",
+              },
+            },
+            {
+              "payment-required": paymentRequiredHeader,
+              "x-x402api-challenge-handle": "charge_bad_hosted_expiry",
+              "x-x402api-challenge-digest": authoritativeChallengeDigest,
+            },
+          ),
+      },
+    );
+    assert.equal(expiryExit, 1);
+    assert.equal(expiryOut.value(), "");
+    assert.match(expiryErr.value(), /invalid or expired hosted checkout expiry/);
+    assert.equal(
+      Object.hasOwn(await store.order("task_bad_hosted_checkout"), "humanCheckout"),
+      false,
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("checkout challenge fails closed without the authoritative challenge digest", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-digest-test-"));
   const stateDirectory = join(directory, "state");
@@ -1269,6 +1478,11 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
             status: "payment_required",
             paymentAttemptId: "payment_renewal",
             challengeDigest: authoritativeChallengeDigest,
+            humanCheckout: {
+              url: hostedCheckoutUrl,
+              qrPayload: hostedCheckoutUrl,
+              expiresAt: hostedCheckoutExpiresAt,
+            },
           },
           {
             "payment-required": renewalHeader,
@@ -1299,6 +1513,7 @@ test("renewal run all-due returns exact autonomous payment and refill actions", 
     assert.equal(output.action, "batch");
     assert.equal(output.results[0].action, "sign_payment");
     assert.equal(output.results[0].challengeHandle, "charge_renewal");
+    assert.equal(Object.hasOwn(output.results[0], "humanCheckout"), false);
     assert.deepEqual(output.results[0].paymentWorkflow.authorize.argv.slice(0, 3), [
       "x402api",
       "payment",

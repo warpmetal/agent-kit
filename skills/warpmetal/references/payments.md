@@ -123,6 +123,16 @@ warpmetal checkout challenge --task <taskId> --json
 Read only the returned safe JSON. Confirm `paymentTerms`, then use the exact
 argv arrays returned under `paymentWorkflow`:
 
+For an interactive initial purchase, an optional `humanCheckout` object offers
+a second presentation path for the same charge. Its `url` and `qrPayload` must
+be identical hosted-checkout URLs; render that URL as the QR and copyable link,
+never a recipient address. If the buyer completes this path, skip agent-wallet
+authorization and run `humanCheckout.afterPayment.argv`. Continue bounded
+status polling until ready, then ask for the optional lifecycle-notification
+email when the result returns `ask_human_for_notification_email`. The hosted
+URL expires at `humanCheckout.expiresAt`, is not persisted by the CLI, and is
+never used for unattended purchases or renewals.
+
 ```text
 paymentWorkflow.authorize.argv
   x402api payment authorize --wallet <wallet-name>
