@@ -88,6 +88,18 @@ returns `paymentTerms` plus exact `paymentWorkflow.authorize.argv` and
 `paymentWorkflow.submit.argv` arrays. Do not reconstruct those commands or
 open either file.
 
+In an interactive initial purchase, the result may also contain
+`humanCheckout`. Offer it as an alternative to the local agent wallet. Show
+`humanCheckout.url` as clickable text and render only the identical
+`humanCheckout.qrPayload` URL as the purchase QR; never render the recipient
+address as this QR. The URL is an expiring bearer capability, so do not log,
+save, or send it anywhere except to the buyer who requested this purchase. If
+the buyer uses it, do not authorize or submit through the agent wallet. Run the
+exact `humanCheckout.afterPayment.argv` command, wait for the server to become
+ready, then follow `ask_human_for_notification_email`: ask the owner for the
+optional lifecycle-notification address and add only the address they provide.
+Ignore this path in unattended purchasing and renewal automation.
+
 Determine payment authority from the current execution context. In an
 interactive conversation, show the human the exact amount, asset, network,
 recipient, profile, and maximum authorization lifetime from `paymentTerms`,

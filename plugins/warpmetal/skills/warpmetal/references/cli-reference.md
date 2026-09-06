@@ -72,6 +72,15 @@ retire that attempt and return a new `paymentAttemptId`. The CLI replaces the
 saved challenge and stale wallet-attempt metadata; use only the newly returned
 workflow.
 
+For interactive initial purchases, the response may additionally include
+`humanCheckout.url`, the identical `qrPayload`, `expiresAt`, and an exact
+`afterPayment.argv` command. The URL is a short-lived bearer capability for the
+same charge, not a recipient address. If the buyer pays in the hosted checkout,
+do not submit an agent-wallet artifact; run the returned status command and,
+after ready, follow `ask_human_for_notification_email` to offer lifecycle
+notices. The CLI does not persist the hosted URL. Renewal commands never expose
+or use this interactive option.
+
 The current integration targets `@x402api/agent-wallet-cli@0.2.9`. A compatible
 live term is marked `agentWalletSupported: true` and must use the sponsored
 Base USDC or Solana USDC/USDT launch profile with buyer native fees disabled.

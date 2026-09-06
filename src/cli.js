@@ -427,7 +427,11 @@ function challengeResult(
   taskId,
   checkoutBody,
   response,
-  { requireChallenge = true } = {},
+  {
+    requireChallenge = true,
+    allowHumanCheckout = false,
+    humanCheckoutContext = undefined,
+  } = {},
 ) {
   const status = response.data?.status;
   const rejected = response.status === 402 && status === "payment_rejected";
@@ -459,6 +463,13 @@ function challengeResult(
       "WarpMetal returned PAYMENT-REQUIRED without X-X402API-Challenge-Digest.",
     );
   }
+  const humanCheckout = allowHumanCheckout
+    ? humanCheckoutResult(
+        response.data?.humanCheckout,
+        taskId,
+        humanCheckoutContext,
+      )
+    : undefined;
   return {
     status,
     taskId,
@@ -469,6 +480,7 @@ function challengeResult(
     challengeHandle,
     challengeDigest,
     checkoutBodySha256: createHash("sha256").update(checkoutBody).digest("hex"),
+    ...(humanCheckout ? { humanCheckout } : {}),
     ...(rejected
       ? {
           errorCode: response.data?.errorCode,
@@ -476,6 +488,74 @@ function challengeResult(
           replacementAllowed: response.data?.replacementAllowed,
         }
       : {}),
+  };
+}
+
+function humanCheckoutResult(value, taskId, { baseUrl, stateDirectory } = {}) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CliError("WarpMetal returned malformed hosted checkout details.");
+  }
+  const keys = Object.keys(value).sort();
+  if (keys.join(",") !== "expiresAt,qrPayload,url") {
+    throw new CliError("WarpMetal returned malformed hosted checkout details.");
+  }
+  if (
+    typeof value.url !== "string" ||
+    typeof value.qrPayload !== "string" ||
+    value.url !== value.qrPayload ||
+    typeof value.expiresAt !== "string"
+  ) {
+    throw new CliError("WarpMetal returned malformed hosted checkout details.");
+  }
+  let url;
+  try {
+    url = new URL(value.url);
+  } catch {
+    throw new CliError("WarpMetal returned an invalid hosted checkout URL.");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.origin !== "https://pay.x402api.com" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    !/^\/c\/chk_[A-Za-z0-9_-]{32}$/.test(url.pathname) ||
+    url.toString() !== value.url
+  ) {
+    throw new CliError("WarpMetal returned an invalid hosted checkout URL.");
+  }
+  const rfc3339 =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  const expiresAt = Date.parse(value.expiresAt);
+  if (
+    !rfc3339.test(value.expiresAt) ||
+    !Number.isFinite(expiresAt) ||
+    expiresAt <= Date.now()
+  ) {
+    throw new CliError(
+      "WarpMetal returned an invalid or expired hosted checkout expiry.",
+    );
+  }
+  return {
+    url: value.url,
+    qrPayload: value.qrPayload,
+    expiresAt: value.expiresAt,
+    afterPayment: {
+      argv: [
+        "warpmetal",
+        "order",
+        "status",
+        "--task",
+        taskId,
+        "--wait",
+        ...(baseUrl ? ["--base-url", baseUrl] : []),
+        ...(stateDirectory ? ["--state-dir", stateDirectory] : []),
+        "--json",
+      ],
+      notificationNextAction: "ask_human_for_notification_email",
+    },
   };
 }
 
@@ -517,7 +597,8 @@ async function attachPaymentWorkflow(
     paymentChallengeDigest: request.challengeDigest,
     paymentWorkflow: workflow,
   });
-  await store.savePaymentChallenge(taskId, safe);
+  const { humanCheckout: _ephemeralHostedCheckout, ...persisted } = safe;
+  await store.savePaymentChallenge(taskId, persisted);
   return safe;
 }
 
@@ -773,9 +854,20 @@ async function handleCheckoutChallenge(client, store, options, context) {
     store,
     taskId,
     order,
-    challengeResult(taskId, order.checkoutBody, response),
+    challengeResult(taskId, order.checkoutBody, response, {
+      // Initial checkout is the only interactive direct-payment surface.
+      // Autonomous renewal continues to use the bounded agent-wallet policy.
+      allowHumanCheckout: true,
+      humanCheckoutContext: {
+        baseUrl: client.baseUrl,
+        stateDirectory: store.directory,
+      },
+    }),
     stringOption(options, "request-envelope-out"),
   );
+  const directCheckoutInstructions = safe.humanCheckout
+    ? `\nDirect wallet checkout (optional, expires ${safe.humanCheckout.expiresAt}): ${safe.humanCheckout.url}\nEncode only that URL as the purchase QR. After payment, continue with: ${shellCommand(safe.humanCheckout.afterPayment.argv)}. When provisioning is ready, ask the owner for the optional lifecycle-notification email before adding it.`
+    : "";
   const paymentInstructions = safe.paymentWorkflow
     ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\n${walletWorkflowInstructions(safe.paymentWorkflow)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize only after selecting/funding one wallet: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`
     : "";
@@ -784,7 +876,7 @@ async function handleCheckoutChallenge(client, store, options, context) {
     safe,
     context.json,
     response.status === 402
-      ? `Payment authorization required for ${taskId}.${paymentInstructions}`
+      ? `Payment authorization required for ${taskId}.${directCheckoutInstructions}${paymentInstructions}`
       : `Checkout status for ${taskId}: ${safe.status}`,
   );
   return response.status === 409 ? 6 : response.status === 402 ? 7 : 0;
