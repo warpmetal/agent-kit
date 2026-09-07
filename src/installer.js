@@ -5,14 +5,14 @@ import {
   verify as verifySignature,
 } from "node:crypto";
 import { spawn as nodeSpawn } from "node:child_process";
-import { access, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { CliError } from "./errors.js";
 
 const MAX_ARTIFACT_BYTES = 256 * 1024 * 1024;
-const REQUIRED_FILES = [
+const BASE_REQUIRED_FILES = [
   "install.sh",
   "warpmetal-agentctl",
   "warpmetal-sandbox-gateway",
@@ -23,6 +23,26 @@ const REQUIRED_FILES = [
   "warpmetald.service",
   "warpmetal-sandbox.conf",
 ];
+
+const NESTED_PRIVATE_PROCFS_FILES = [
+  "nested-private-procfs-oracle.sh",
+  "warpmetal-agent-runtime-bwrap",
+  "warpmetal-apparmor-policy.sh",
+  "warpmetal-policy-metadata",
+];
+
+function supportsNestedPrivateProcfs(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!match) return false;
+  const [, major, minor, patch] = match.map(Number);
+  return major > 0 || minor > 1 || (minor === 1 && patch >= 25);
+}
+
+function requiredFiles(version) {
+  return supportsNestedPrivateProcfs(version)
+    ? [...BASE_REQUIRED_FILES, ...NESTED_PRIVATE_PROCFS_FILES]
+    : BASE_REQUIRED_FILES;
+}
 
 const INSTALLER_ERROR_MESSAGES = new Map([
   [
@@ -77,12 +97,75 @@ const INSTALLER_ERROR_MESSAGES = new Map([
     "runtime_legacy_migration_required",
     "Existing preview Agent Runtime state requires a separately reviewed migration; it was not reset.",
   ],
+  [
+    "runtime_nested_private_procfs_architecture_unsupported",
+    "Nested private procfs is unavailable on this host architecture.",
+  ],
+  [
+    "runtime_nested_private_procfs_mode_invalid",
+    "The Agent Runtime installer rejected the nested-private-procfs action.",
+  ],
+  [
+    "runtime_apparmor_policy_bundle_invalid",
+    "The signed Runtime bundle does not contain a valid nested-private-procfs policy set.",
+  ],
+  [
+    "runtime_apparmor_state_unverifiable",
+    "The server's AppArmor state could not be verified safely.",
+  ],
+  [
+    "runtime_apparmor_policy_unsupported",
+    "The server cannot safely enable the nested-private-procfs AppArmor policy.",
+  ],
+  [
+    "runtime_apparmor_policy_backup_failed",
+    "The existing AppArmor policy state could not be preserved exactly.",
+  ],
+  [
+    "runtime_apparmor_policy_conflict",
+    "The server has a conflicting nested-private-procfs AppArmor policy state.",
+  ],
+  [
+    "runtime_apparmor_policy_parse_failed",
+    "The signed nested-private-procfs AppArmor policy did not pass host validation.",
+  ],
+  [
+    "runtime_apparmor_policy_install_failed",
+    "The nested-private-procfs AppArmor policy could not be installed safely.",
+  ],
+  [
+    "runtime_apparmor_policy_load_failed",
+    "The nested-private-procfs AppArmor policy could not be loaded and verified.",
+  ],
+  [
+    "runtime_apparmor_policy_disable_failed",
+    "The nested-private-procfs AppArmor policy could not be disabled and restored safely.",
+  ],
+  [
+    "runtime_apparmor_policy_rollback_failed",
+    "The AppArmor policy transaction could not restore its prior state; operator recovery is required.",
+  ],
+  [
+    "runtime_apparmor_policy_recovery_failed",
+    "A prior interrupted AppArmor policy transaction could not be recovered; operator recovery is required.",
+  ],
 ]);
+
+const RECOVERY_ERROR_PRIORITY = [
+  "runtime_apparmor_policy_rollback_failed",
+  "runtime_apparmor_policy_recovery_failed",
+];
 
 function mappedInstallerError(result) {
   const lines = `${result.stderr}\n${result.stdout}`
     .split(/\r?\n/)
     .map((line) => line.trim());
+  for (const code of RECOVERY_ERROR_PRIORITY) {
+    if (lines.includes(code)) {
+      const message = INSTALLER_ERROR_MESSAGES.get(code);
+      return { code, message: `${message} (${code})` };
+    }
+  }
   for (const [code, message] of INSTALLER_ERROR_MESSAGES) {
     if (lines.includes(code)) return { code, message: `${message} (${code})` };
   }
@@ -271,6 +354,7 @@ export async function installRuntime({
   identity,
   sshUser,
   bootstrap,
+  nestedPrivateProcfs = "preserve",
   fetchImpl = globalThis.fetch,
   spawnImpl = nodeSpawn,
 }) {
@@ -284,6 +368,20 @@ export async function installRuntime({
     });
   }
   const metadata = validateArtifact(bootstrap?.artifact);
+  if (!new Set(["preserve", "enable", "disable"]).has(nestedPrivateProcfs)) {
+    throw new CliError("The nested private procfs action is invalid.", {
+      exitCode: 2,
+    });
+  }
+  if (
+    nestedPrivateProcfs !== "preserve" &&
+    !supportsNestedPrivateProcfs(metadata.version)
+  ) {
+    throw new CliError(
+      `Agent Runtime ${metadata.version} does not support nested private procfs actions.`,
+      { exitCode: 4 },
+    );
+  }
   const bootstrapToken = bootstrap?.bootstrapToken;
   if (
     typeof bootstrapToken !== "string" ||
@@ -316,15 +414,25 @@ export async function installRuntime({
         spawnImpl,
       },
     );
-    for (const file of REQUIRED_FILES) await access(join(extractPath, file));
-    const unexpected = (await readdir(extractPath)).filter(
-      (name) => !REQUIRED_FILES.includes(name),
-    );
-    if (unexpected.length > 0) {
+    const expectedFiles = requiredFiles(metadata.version);
+    const actualFiles = await readdir(extractPath);
+    const exactNames =
+      actualFiles.length === expectedFiles.length &&
+      expectedFiles.every((name) => actualFiles.includes(name));
+    if (!exactNames) {
       throw new CliError(
-        "The signed runtime bundle contains unsupported files.",
+        "The signed runtime bundle files do not match this CLI version.",
         { exitCode: 4 },
       );
+    }
+    for (const file of expectedFiles) {
+      const metadata = await lstat(join(extractPath, file));
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        throw new CliError(
+          "The signed runtime bundle files do not match this CLI version.",
+          { exitCode: 4 },
+        );
+      }
     }
     remoteTouched = true;
     await spawnChecked(
@@ -351,19 +459,23 @@ export async function installRuntime({
       ],
       { spawnImpl },
     );
+    const installerArguments = [
+      ...ssh,
+      "sudo",
+      `${remoteBundle}/install.sh`,
+      "--api",
+      client.baseUrl,
+      "--server",
+      serverId,
+      "--bundle",
+      remoteBundle,
+    ];
+    if (nestedPrivateProcfs !== "preserve") {
+      installerArguments.push("--nested-private-procfs", nestedPrivateProcfs);
+    }
     await spawnChecked(
       "ssh",
-      [
-        ...ssh,
-        "sudo",
-        `${remoteBundle}/install.sh`,
-        "--api",
-        client.baseUrl,
-        "--server",
-        serverId,
-        "--bundle",
-        remoteBundle,
-      ],
+      installerArguments,
       {
         stdin: `${bootstrapToken}\n`,
         spawnImpl,
@@ -378,7 +490,12 @@ export async function installRuntime({
         spawnImpl,
       },
     );
-    return { serverId, supervisorVersion: metadata.version, installed: true };
+    return {
+      serverId,
+      supervisorVersion: metadata.version,
+      installed: true,
+      nestedPrivateProcfsAction: nestedPrivateProcfs,
+    };
   } catch (error) {
     operationFailed = true;
     throw error;

@@ -349,6 +349,28 @@ warpmetal sandbox access keygen \
   --json
 ```
 
+Agent Runtime v0.1.25 and newer can enable the narrowly scoped AppArmor
+exception required by Codex and similar nested coding sandboxes:
+
+```sh
+warpmetal runtime install \
+  --server <serverId> \
+  --ssh-user root \
+  --confirm INSTALL \
+  --nested-private-procfs enable \
+  --wait \
+  --json
+```
+
+This is an explicit host-level opt-in for coding/QA hosts, not a requirement
+for ordinary VPS or non-coding Agent Runtime users. The default `preserve`
+action leaves the current policy state unchanged. Use `disable` during an
+approved maintenance window to unload WarpMetal's policy and restore the
+pre-install file and loaded-policy state. Because Runtime sandboxes share one
+Unix owner, treat an enabled policy as available to every sandbox on that
+Runtime host whose process matches the signed, root-owned bwrap path; it is not
+a per-sandbox permission.
+
 Installation gives pre-existing Docker containers exact liveness checks and
 tracks common container-runtime processes without collecting application
 configuration. The signed installer uses `crun` for its private rootless Podman

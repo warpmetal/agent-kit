@@ -283,6 +283,13 @@ sizes. Use `--runtime-file` to include sandbox intent in an unpaid order, or
 `warpmetal runtime enable` after the VPS is ready. Supervisor installation is
 separate and requires approval plus `--confirm INSTALL`.
 
+For a verified Codex or nested coding/QA host, CLI 0.8.7 with Runtime 0.1.25 or
+newer may add `--nested-private-procfs enable` to the approved Runtime install.
+Do not enable it for ordinary VPS or non-coding Runtime users. Omission means
+`preserve`, which leaves policy state unchanged; `disable` is an explicit
+maintenance action. The exception is host-scoped rather than sandbox-scoped,
+so separate workloads onto different VPS hosts when they must not share it.
+
 Omitted lifetime means persistent. A temporary sandbox requires
 `--confirm TEMPORARY`, expires 15 minutes to 24 hours after first reaching
 running, and permanently deletes its workspace at expiry. Never describe a

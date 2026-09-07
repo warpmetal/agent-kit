@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { EventEmitter } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import { main, refillRenewBy } from "../src/cli.js";
 import { digestJson } from "../src/payment.js";
+import { generateServerKey } from "../src/ssh.js";
 import { StateStore } from "../src/state.js";
 
 const paymentRequirement = {
@@ -136,6 +141,179 @@ test("JSON errors include stable CliError codes as structured data", async () =>
     assert.equal(stdout.value(), "");
     const result = JSON.parse(stderr.value());
     assert.equal(result.error.code, "identity_required");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runtime install recognizes and validates the nested private procfs option", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-procfs-test-"));
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    const exitCode = await main(
+      [
+        "runtime",
+        "install",
+        "--server",
+        "srv_example123",
+        "--ssh-user",
+        "root",
+        "--identity",
+        "/tmp/unused-warpmetal-key",
+        "--confirm",
+        "INSTALL",
+        "--nested-private-procfs",
+        "automatic",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {} },
+    );
+
+    assert.equal(exitCode, 2);
+    const error = JSON.parse(stderr.value());
+    assert.match(error.error.message, /must be preserve, enable, or disable/);
+    assert.doesNotMatch(error.error.message, /Unsupported option/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runtime install forwards a positive nested private procfs option through the CLI", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-procfs-positive-"));
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    let identity;
+    try {
+      identity = await generateServerKey(join(directory, "keys"), "procfs-test");
+    } catch (error) {
+      if (error?.message?.includes("ssh-keygen is required")) {
+        context.skip("ssh-keygen is not installed");
+        return;
+      }
+      throw error;
+    }
+    const artifactContent = Buffer.from("signed runtime v0.1.25 archive");
+    const { privateKey, publicKey } = generateKeyPairSync("ed25519");
+    const artifact = {
+      version: "0.1.25",
+      url: "https://releases.warpmetal.test/runtime-v0.1.25.tar.gz",
+      sha256: createHash("sha256").update(artifactContent).digest("hex"),
+      signature: sign(null, artifactContent, privateKey).toString("base64"),
+      signingPublicKey: publicKey.export({ type: "spki", format: "pem" }),
+    };
+    const calls = [];
+    const bundleFiles = [
+      "install.sh",
+      "warpmetal-agentctl",
+      "warpmetal-sandbox-gateway",
+      "warpmetal-sandbox-shell",
+      "warpmetal-podman-service",
+      "warpmetal-podman.service",
+      "warpmetald",
+      "warpmetald.service",
+      "warpmetal-sandbox.conf",
+      "nested-private-procfs-oracle.sh",
+      "warpmetal-agent-runtime-bwrap",
+      "warpmetal-apparmor-policy.sh",
+      "warpmetal-policy-metadata",
+    ];
+    const spawnImpl = (command, args, options) => {
+      calls.push({ command, args, options });
+      if (command === "tar" && args[0] === "-xzf") {
+        const extractPath = args[args.indexOf("-C") + 1];
+        mkdirSync(extractPath, { recursive: true });
+        for (const file of bundleFiles) {
+          writeFileSync(join(extractPath, file), "fixture");
+        }
+      }
+      const child = new EventEmitter();
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stderr.end();
+        child.stdout.end();
+        child.emit("close", 0);
+      });
+      return child;
+    };
+    const fetchImpl = async (input, request = {}) => {
+      const url = new URL(String(input));
+      if (url.toString() === artifact.url) {
+        return new Response(artifactContent, {
+          status: 200,
+          headers: { "content-length": String(artifactContent.length) },
+        });
+      }
+      if (url.pathname.endsWith("/auth/challenges")) {
+        return jsonResponse(200, {
+          challengeId: "challenge_procfs_test",
+          payload: "warpmetal-ssh-auth-v1\nchallenge\nserver\nnonce\n",
+        });
+      }
+      if (url.pathname.endsWith("/auth/tokens")) {
+        return jsonResponse(200, {
+          accessToken: "sat_procfs_test",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        });
+      }
+      if (url.pathname.endsWith("/runtime/bootstrap")) {
+        return jsonResponse(200, {
+          artifact,
+          bootstrapToken: "rtb_procfs_test",
+        });
+      }
+      if (request.method === "GET" && url.pathname === "/servers/srv_example123") {
+        return jsonResponse(200, {
+          task: { state: "ready", publicIp: "203.0.113.10" },
+        });
+      }
+      throw new Error(`Unexpected test request: ${request.method} ${url.pathname}`);
+    };
+
+    const exitCode = await main(
+      [
+        "runtime",
+        "install",
+        "--server",
+        "srv_example123",
+        "--identity",
+        identity.privateKeyPath,
+        "--ssh-user",
+        "root",
+        "--confirm",
+        "INSTALL",
+        "--nested-private-procfs",
+        "enable",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl,
+        spawnImpl,
+      },
+    );
+
+    assert.equal(exitCode, 0, stderr.value());
+    assert.equal(JSON.parse(stdout.value()).nestedPrivateProcfsAction, "enable");
+    const install = calls.find(
+      (call) =>
+        call.command === "ssh" &&
+        call.args.some((argument) => argument.endsWith("/install.sh")),
+    );
+    assert.ok(install);
+    const option = install.args.indexOf("--nested-private-procfs");
+    assert.equal(install.args[option + 1], "enable");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
