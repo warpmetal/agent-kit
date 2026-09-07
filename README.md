@@ -349,6 +349,36 @@ warpmetal sandbox access keygen \
   --json
 ```
 
+WarpMetal CLI v0.8.7 with Agent Runtime v0.1.25 or newer can enable the narrowly
+scoped AppArmor exception required by a verified workload that creates an inner
+Bubblewrap PID namespace and private `/proc`:
+
+```sh
+warpmetal runtime install \
+  --server <serverId> \
+  --ssh-user root \
+  --confirm INSTALL \
+  --nested-private-procfs enable \
+  --wait \
+  --json
+```
+
+This is an explicit host-scoped opt-in for nested-Bubblewrap hosts, not a
+requirement for ordinary VPS or Runtime workloads that use only the outer
+sandbox. The default `preserve` action leaves the current policy state
+unchanged. Use `disable` during an approved maintenance window to unload
+WarpMetal's policy and restore the pre-install file and loaded-policy state.
+Because Runtime sandboxes share one Unix owner, treat an enabled policy as
+available to every sandbox on that Runtime host whose process matches the
+signed, root-owned bwrap path; it is not a per-sandbox permission.
+
+Common inner-boundary designs are planning with an exact read-only checkout,
+coding with only one approved checkout and output directory writable, and QA
+with an exact candidate plus isolated test processes and scratch space. The
+boundary protects a persistent trusted runner from repository-controlled
+commands and sibling attempts. GitHub access, installing Codex or another AI
+CLI, and delegating to subagents do not by themselves require this capability.
+
 Installation gives pre-existing Docker containers exact liveness checks and
 tracks common container-runtime processes without collecting application
 configuration. The signed installer uses `crun` for its private rootless Podman

@@ -110,7 +110,7 @@ Usage:
   warpmetal operation get --operation <operationId> [--server <serverId>] [--wait]
   warpmetal runtime enable|get --server <serverId> [--wait]
   warpmetal runtime install --server <serverId> [--identity <owner-key>] --ssh-user <user>
-    --confirm INSTALL [--wait]
+    --confirm INSTALL [--nested-private-procfs <preserve|enable|disable>] [--wait]
   warpmetal sandbox create --server <serverId> --name <name> --size <size>
     [--lifetime temporary] [--expires-in-seconds <n>] [--confirm TEMPORARY] [--wait]
   warpmetal sandbox create --server <serverId> --file <batch.json> [--confirm TEMPORARY]
@@ -131,6 +131,16 @@ Global options:
   --json                 Emit structured, secret-redacted JSON
   --help                 Show help
   --version              Show the CLI version
+
+Nested private procfs (CLI 0.8.7+, Runtime 0.1.25+):
+  preserve               Default; do not inspect or change AppArmor policy state
+  enable                 Enable the exact-path Bubblewrap policy on an amd64 host
+  disable                Remove it and restore the recorded pre-enable policy state
+
+Use enable once per dedicated Runtime host when a verified workload creates an
+inner Bubblewrap PID namespace and private /proc. Planning, coding, and QA are
+common examples. GitHub access, an AI CLI, and subagent delegation alone do not
+require it. The capability is host-scoped, not per-sandbox.
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
@@ -2140,6 +2150,14 @@ async function handleRuntimeInstall(client, store, options, context) {
     stringOption(options, "identity"),
   );
   const sshUser = stringOption(options, "ssh-user", { required: true });
+  const nestedPrivateProcfs =
+    stringOption(options, "nested-private-procfs") || "preserve";
+  if (!["preserve", "enable", "disable"].includes(nestedPrivateProcfs)) {
+    throw new CliError(
+      "--nested-private-procfs must be preserve, enable, or disable.",
+      { exitCode: 2 },
+    );
+  }
   if (stringOption(options, "confirm", { required: true }) !== "INSTALL") {
     throw new CliError(
       "Confirm supervisor installation with --confirm INSTALL.",
@@ -2167,6 +2185,7 @@ async function handleRuntimeInstall(client, store, options, context) {
     identity,
     sshUser,
     bootstrap: bootstrap.data,
+    nestedPrivateProcfs,
     fetchImpl: context.fetchImpl,
     spawnImpl: context.spawnImpl,
   });
@@ -2975,6 +2994,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "identity",
         "ssh-user",
         "confirm",
+        "nested-private-procfs",
         "idempotency-key",
         "wait",
         "timeout-seconds",
