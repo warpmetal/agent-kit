@@ -72,11 +72,18 @@ does not print or store the bootstrap.
 `--nested-private-procfs` is supported by `warpmetal` CLI 0.8.7 with Agent
 Runtime 0.1.25 or newer. Its default is `preserve`, which makes no AppArmor
 policy change. Select `enable` only when this VPS is intentionally dedicated to
-Codex or another verified nested coding/QA workload that needs a private procfs
-inside Runtime's bwrap process. Ordinary VPS users and non-coding Runtime users
-do not need it. Select `disable` only during an approved maintenance action to
-unload WarpMetal's policy and restore the exact file and loaded-policy state
-that existed before enablement.
+a verified workload that creates an inner Bubblewrap PID namespace and private
+procfs. Ordinary VPS users and Runtime workloads that rely only on the outer
+sandbox do not need it. Select `disable` only during an approved maintenance
+action to unload WarpMetal's policy and restore the exact file and loaded-policy
+state that existed before enablement.
+
+Examples include a planner with an exact read-only checkout, a coder with only
+one approved checkout and output directory writable, and QA with an exact
+candidate plus isolated test processes and scratch space. This protects a
+persistent trusted runner from repository-controlled commands and sibling
+attempts. GitHub access, installing an AI CLI, and subagent delegation alone do
+not require nested private procfs.
 
 This setting is host-scoped, not sandbox-scoped. Runtime sandboxes share one
 Unix owner, so every sandbox on the host can use the exception only through the

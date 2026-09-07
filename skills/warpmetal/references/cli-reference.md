@@ -233,9 +233,11 @@ warpmetal sandbox delete \
 ```
 
 The nested-private-procfs action requires CLI 0.8.7 and Runtime 0.1.25 or
-newer. It defaults to `preserve`. `enable` is a host-level opt-in for verified
-nested coding/QA workloads; ordinary VPS and non-coding Runtime installations
-do not need it. `disable` unloads WarpMetal's policy and restores the recorded
+newer. It defaults to `preserve`. `enable` is a host-level opt-in for any
+verified workload that creates an inner Bubblewrap PID namespace and private
+`/proc`; read-only planning, single-workspace coding, and independent QA are
+common examples. GitHub use, an AI CLI, or subagent delegation alone does not
+require it. `disable` unloads WarpMetal's policy and restores the recorded
 pre-enable state. It is not a per-sandbox capability because Runtime sandboxes
 share one Unix owner.
 

@@ -120,6 +120,27 @@ function jsonResponse(status, body, headers = {}) {
   });
 }
 
+test("help explains the nested private procfs lifecycle and use cases", async () => {
+  const stdout = capture();
+  const stderr = capture();
+  const exitCode = await main(["--help"], {
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    env: {},
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(stderr.value(), "");
+  assert.match(stdout.value(), /Nested private procfs \(CLI 0\.8\.7\+, Runtime 0\.1\.25\+\)/);
+  assert.match(stdout.value(), /preserve\s+Default/);
+  assert.match(stdout.value(), /Planning, coding, and QA are\s+common examples/);
+  assert.match(
+    stdout.value(),
+    /GitHub access, an AI CLI, and subagent delegation alone do not\s+require it/,
+  );
+  assert.match(stdout.value(), /host-scoped, not per-sandbox/);
+});
+
 test("JSON errors include stable CliError codes as structured data", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-error-test-"));
   const stdout = capture();

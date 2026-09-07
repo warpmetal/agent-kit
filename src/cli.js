@@ -132,6 +132,16 @@ Global options:
   --help                 Show help
   --version              Show the CLI version
 
+Nested private procfs (CLI 0.8.7+, Runtime 0.1.25+):
+  preserve               Default; do not inspect or change AppArmor policy state
+  enable                 Enable the exact-path Bubblewrap policy on an amd64 host
+  disable                Remove it and restore the recorded pre-enable policy state
+
+Use enable once per dedicated Runtime host when a verified workload creates an
+inner Bubblewrap PID namespace and private /proc. Planning, coding, and QA are
+common examples. GitHub access, an AI CLI, and subagent delegation alone do not
+require it. The capability is host-scoped, not per-sandbox.
+
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
   WARPMETAL_ACCESS_TOKEN Short-lived SSH-derived credential for one explicit command
