@@ -12,6 +12,7 @@ import {
 import { WarpMetalClient } from "./api.js";
 import { connectionProfile, writeConnectionProfile } from "./connection.js";
 import { CliError, toErrorMessage } from "./errors.js";
+import { establishHostTrust } from "./host-trust.js";
 import { installSkill } from "./install-skill.js";
 import { installRuntime } from "./installer.js";
 import {
@@ -141,6 +142,16 @@ Use enable once per dedicated Runtime host when a verified workload creates an
 inner Bubblewrap PID namespace and private /proc. Planning, coding, and QA are
 common examples. GitHub access, an AI CLI, and subagent delegation alone do not
 require it. The capability is host-scoped, not per-sandbox.
+
+SSH host trust (CLI 0.8.8+):
+  runtime install authenticates with the exact owner key and trusts the first
+  observed Ed25519 host key once for that server trust epoch. It pins the key
+  before requesting a Runtime bootstrap, immediately reconnects strictly, and
+  requires that same pin thereafter. A changed key is never accepted or
+  overwritten. A successful recorded server reload may create one new trust
+  epoch; failed or ambiguous reloads do not. First-use trust cannot detect an
+  active attacker on the first connection. Provider-console pre-enrollment is
+  the optional higher-assurance alternative.
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
@@ -1939,6 +1950,7 @@ async function applyReloadResult(
   operation,
   pendingIdentityId,
 ) {
+  await store.applyReloadHostTrust(serverId, operation);
   if (operation?.state !== "succeeded") return;
   if (pendingIdentityId) {
     await store.bindIdentity(pendingIdentityId, undefined, serverId);
@@ -2052,10 +2064,12 @@ async function handleServerReload(client, store, options, context) {
     context.json,
     `Reload operation ${operationId}: ${operation?.state}.` +
       (operation?.state === "succeeded" &&
-      operation.result?.reloadImpact?.agentRuntimeAffected
-        ? " Verify and refresh the owner SSH host key, reinstall Agent Runtime, then refresh every sandbox connection profile."
+      operation.result?.reloadImpact?.ownerKnownHostsNeedRefresh
+        ? operation.result?.reloadImpact?.agentRuntimeAffected
+          ? " The next Runtime install will establish the operation-bound owner SSH trust epoch, then reinstall Agent Runtime and refresh every sandbox connection profile."
+          : " The next Runtime install will establish the operation-bound owner SSH trust epoch before reconnecting."
         : operation?.state === "succeeded"
-          ? " Verify and refresh the owner SSH host key before reconnecting."
+          ? " WarpMetal did not report a host-key refresh; the existing managed pin remains required."
           : ""),
   );
   if (operation?.state === "manual_review") return 6;
@@ -2170,6 +2184,20 @@ async function handleRuntimeInstall(client, store, options, context) {
     serverId,
     identity,
   );
+  const server = (await client.getServer(serverId, issued.accessToken)).data
+    ?.task;
+  const trustEpoch = await store.hostTrustEpoch(serverId);
+  const hostKeyTrust = await establishHostTrust({
+    stateDirectory: store.directory,
+    serverId,
+    trustEpoch,
+    server,
+    identityPath: identity,
+    sshUser,
+    reinspectServer: async () =>
+      (await client.getServer(serverId, issued.accessToken)).data?.task,
+    spawnImpl: context.spawnImpl,
+  });
   const key =
     stringOption(options, "idempotency-key") ||
     idempotencyKey("runtime-bootstrap");
@@ -2184,11 +2212,19 @@ async function handleRuntimeInstall(client, store, options, context) {
     token: issued.accessToken,
     identity,
     sshUser,
+    knownHostsFile: hostKeyTrust.knownHostsFile,
+    trustedPublicIp: hostKeyTrust.publicIp,
     bootstrap: bootstrap.data,
     nestedPrivateProcfs,
     fetchImpl: context.fetchImpl,
     spawnImpl: context.spawnImpl,
   });
+  safe.hostKeyTrust = {
+    state: hostKeyTrust.state,
+    algorithm: hostKeyTrust.algorithm,
+    fingerprint: hostKeyTrust.fingerprint,
+    trustEpoch: hostKeyTrust.trustEpoch,
+  };
   let runtimeResult;
   if (booleanOption(options, "wait")) {
     runtimeResult = await pollRuntime(
@@ -2204,7 +2240,7 @@ async function handleRuntimeInstall(client, store, options, context) {
     context.stdout,
     safe,
     context.json,
-    `Installed Agent Runtime ${safe.supervisorVersion} on ${serverId}${safe.runtime ? `: ${safe.runtime.state}` : "."}`,
+    `Installed Agent Runtime ${safe.supervisorVersion} on ${serverId}${safe.runtime ? `: ${safe.runtime.state}` : "."} SSH host key ${safe.hostKeyTrust.state === "trusted_first_use" ? "trusted on first use" : "matched"} (${safe.hostKeyTrust.fingerprint}).`,
   );
   return safe.runtime?.state === "degraded" ? 5 : 0;
 }

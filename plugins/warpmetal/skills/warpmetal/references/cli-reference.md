@@ -232,6 +232,16 @@ warpmetal sandbox delete \
   --server <serverId> --sandbox <sandboxId> --confirm DELETE [--wait] --json
 ```
 
+CLI 0.8.8 manages owner-facing VPS host trust during `runtime install`. With no
+pin for the exact server trust epoch, the confirmed install performs one
+harmless owner-key-authenticated SSH connection, trusts the first observed
+Ed25519 host key, atomically pins it, and immediately reconnects strictly before
+requesting bootstrap. JSON reports `hostKeyTrust.state` as
+`trusted_first_use` or `matched` plus the safe fingerprint. Every later SSH and
+SCP operation is strict; changed keys, malformed pins, and failed or ambiguous
+reloads never replace trust. This TOFU step cannot detect an active attacker on
+the first connection. Provider-console pre-enrollment is optional and stronger.
+
 The nested-private-procfs action requires CLI 0.8.7 and Runtime 0.1.25 or
 newer. It defaults to `preserve`. `enable` is a host-level opt-in for any
 verified workload that creates an inner Bubblewrap PID namespace and private

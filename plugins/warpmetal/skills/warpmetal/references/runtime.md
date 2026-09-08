@@ -65,9 +65,21 @@ warpmetal runtime get --server <serverId> --wait --json
 ```
 
 Ask before installation. Pass the owner key path without reading the file.
-The CLI holds the one-time bootstrap only in memory, verifies the signed
-artifact, uploads it through OpenSSH without a shell-enabled local spawn, and
-does not print or store the bootstrap.
+CLI 0.8.8 first validates that the public half matches the server's ordering-key
+fingerprint. When that server trust epoch has no pin, it runs only an owner-key-
+authenticated `ssh true`, trusts the first observed Ed25519 host key, publishes
+it atomically under the private WarpMetal state directory, and immediately
+reconnects strictly. Only then does the CLI request the one-time bootstrap. It
+holds that bootstrap only in memory, verifies the signed artifact, uploads it
+through OpenSSH without a shell-enabled local spawn, and does not print or store
+the bootstrap. Every later SSH/SCP operation uses the same strict pin; a
+mismatch never overwrites it.
+
+First-use trust provides continuity after the first observation but cannot
+detect an active attacker on that connection. Provider-console pre-enrollment
+is an optional higher-assurance alternative, not a requirement. Only a locally
+recorded successful reload that reports an owner-host-key refresh creates one
+new operation-bound trust epoch; failed or ambiguous reloads do not.
 
 `--nested-private-procfs` is supported by `warpmetal` CLI 0.8.7 with Agent
 Runtime 0.1.25 or newer. Its default is `preserve`, which makes no AppArmor

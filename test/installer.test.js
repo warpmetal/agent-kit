@@ -92,6 +92,8 @@ function installFixture(options = {}) {
       token: "owner-token",
       identity: "/tmp/owner-key",
       sshUser: "root",
+      knownHostsFile: "/tmp/warpmetal-known-hosts",
+      trustedPublicIp: "203.0.113.10",
       bootstrap: { artifact: metadata, bootstrapToken: "rtb_secret" },
       fetchImpl: async () => ({
         ok: true,
@@ -139,6 +141,20 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   assert.equal(result.installed, true);
   assert.equal(result.nestedPrivateProcfsAction, "preserve");
   assert.ok(recorder.calls.every((call) => call.options.shell === false));
+  for (const call of recorder.calls.filter(({ command }) =>
+    ["ssh", "scp"].includes(command),
+  )) {
+    assert.ok(call.args.includes("-F"));
+    assert.ok(call.args.includes("/dev/null"));
+    assert.ok(call.args.includes("StrictHostKeyChecking=yes"));
+    assert.ok(
+      call.args.includes("UserKnownHostsFile=/tmp/warpmetal-known-hosts"),
+    );
+    assert.equal(
+      call.args.includes("StrictHostKeyChecking=accept-new"),
+      false,
+    );
+  }
   const install = recorder.calls.find(
     (call) =>
       call.command === "ssh" &&

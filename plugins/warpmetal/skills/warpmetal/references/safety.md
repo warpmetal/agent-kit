@@ -99,9 +99,18 @@ the supervisor identity is revoked, desired sandboxes are recreated empty
 after reinstall, and all pinned profiles require refresh. Use only the guarded
 CLI command and stop on `manual_review`. Reload invalidates the prior
 owner-facing SSH host-key trust decision; the provider may rotate or preserve
-the key. Verify the post-reload fingerprint through a trusted provider or
-console channel, change `known_hosts` only when the verified key changed, and
-never disable host-key checking.
+the key. CLI 0.8.8 opens one new managed trust epoch only after the exact local
+reload operation succeeds and reports that refresh is required. The first
+owner-key-authenticated connection may pin the observed Ed25519 key once, then
+all connections are strict. Failed or ambiguous reloads never advance trust.
+Never use `ssh-keyscan`, disable host-key checking, accept a mismatch, or delete
+a pin as a generic reset. Provider-console pre-enrollment remains the optional
+higher-assurance alternative; TOFU cannot detect an active attacker on the
+first connection.
+
+The private WarpMetal state directory is the local trust domain. Deleting it
+removes the durable pin and makes the next install a new first-use decision;
+never present that as continuity with the prior server identity.
 
 An order preparation is unpaid but consumes a limited prepared-order slot.
 Confirm the plan, hostname, OS, and public key before preparing it.

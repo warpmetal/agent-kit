@@ -37,7 +37,7 @@ test("state keeps credentials private and redacts summaries", async () => {
   }
 });
 
-test("version 1 state migrates to version 3 without losing credentials", async () => {
+test("version 1 state migrates to version 4 without losing credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-migration-"));
   const store = new StateStore(directory);
   const legacy = {
@@ -49,13 +49,38 @@ test("version 1 state migrates to version 3 without losing credentials", async (
   try {
     await writeFile(store.path, JSON.stringify(legacy), { mode: 0o600 });
     const migrated = await store.read();
-    assert.equal(migrated.version, 3);
+    assert.equal(migrated.version, 4);
     assert.equal(migrated.orders.task_old.ownerToken, "owner-secret");
     assert.equal(migrated.servers.srv_old.accessToken, "access-secret");
     assert.deepEqual(migrated.runtimes, {});
     assert.deepEqual(migrated.identities, {});
     assert.deepEqual(migrated.renewals, {});
-    assert.equal(JSON.parse(await readFile(store.path, "utf8")).version, 3);
+    assert.equal(JSON.parse(await readFile(store.path, "utf8")).version, 4);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("version 3 state migrates to version 4 without changing server trust", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-v3-migration-"));
+  const store = new StateStore(directory);
+  const legacy = {
+    version: 3,
+    orders: {},
+    servers: { srv_old: { serverId: "srv_old", ownerToken: "owner-secret" } },
+    operations: {},
+    runtimes: {},
+    sandboxes: {},
+    accessGrants: {},
+    identities: {},
+    renewals: {},
+  };
+  try {
+    await writeFile(store.path, JSON.stringify(legacy), { mode: 0o600 });
+    const migrated = await store.read();
+    assert.equal(migrated.version, 4);
+    assert.equal(migrated.servers.srv_old.ownerToken, "owner-secret");
+    assert.equal(await store.hostTrustEpoch("srv_old"), "initial");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -265,6 +290,55 @@ test("state binds a dedicated SSH identity and renewal policy to one server", as
     assert.equal(identity.taskId, "task_identity");
     assert.equal(renewal.wallet, "agent-wallet");
     assert.equal(renewal.refillTargetAtomic, "20000000");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("only the latest successful reload that requires refresh advances host trust", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-state-host-trust-"));
+  const store = new StateStore(directory);
+  try {
+    assert.equal(await store.hostTrustEpoch("srv_example123"), "initial");
+    await store.saveOperation(
+      "op_reload12345",
+      "srv_example123",
+      "reload",
+    );
+    await store.applyReloadHostTrust("srv_example123", {
+      id: "op_reload12345",
+      state: "succeeded",
+      result: { reloadImpact: { ownerKnownHostsNeedRefresh: true } },
+    });
+    assert.equal(
+      await store.hostTrustEpoch("srv_example123"),
+      "reload-op_reload12345",
+    );
+
+    await store.saveOperation(
+      "op_reload67890",
+      "srv_example123",
+      "reload",
+    );
+    await store.applyReloadHostTrust("srv_example123", {
+      id: "op_reload67890",
+      state: "failed",
+      result: { reloadImpact: { ownerKnownHostsNeedRefresh: true } },
+    });
+    assert.equal(
+      await store.hostTrustEpoch("srv_example123"),
+      "reload-op_reload12345",
+    );
+
+    await store.applyReloadHostTrust("srv_example123", {
+      id: "op_reload67890",
+      state: "succeeded",
+      result: { reloadImpact: { ownerKnownHostsNeedRefresh: true } },
+    });
+    assert.equal(
+      await store.hostTrustEpoch("srv_example123"),
+      "reload-op_reload12345",
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

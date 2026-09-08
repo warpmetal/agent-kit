@@ -8,6 +8,7 @@ import test from "node:test";
 import { parseArguments } from "../src/args.js";
 import { main } from "../src/cli.js";
 import { validateSandboxBatch } from "../src/runtime.js";
+import { StateStore } from "../src/state.js";
 
 function capture() {
   let value = "";
@@ -355,6 +356,12 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
     assert.equal(
       output.operation.result.reloadImpact.nextAction,
       "install_supervisor",
+    );
+    assert.equal(
+      await new StateStore(join(directory, "state")).hostTrustEpoch(
+        "srv_runtime12345",
+      ),
+      "reload-op_reload12345",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
