@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { CliError } from "./errors.js";
+import { strictSshOptions } from "./host-trust.js";
 
 const MAX_ARTIFACT_BYTES = 256 * 1024 * 1024;
 const BASE_REQUIRED_FILES = [
@@ -323,7 +324,7 @@ async function spawnChecked(
   return result;
 }
 
-function sshBase(identity, sshUser, host) {
+function sshBase(identity, sshUser, host, knownHostsFile) {
   if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(sshUser)) {
     throw new CliError("--ssh-user is invalid.", { exitCode: 2 });
   }
@@ -333,16 +334,7 @@ function sshBase(identity, sshUser, host) {
     });
   }
   return [
-    "-i",
-    resolve(identity),
-    "-o",
-    "IdentitiesOnly=yes",
-    "-o",
-    "StrictHostKeyChecking=yes",
-    "-o",
-    "ForwardAgent=no",
-    "-o",
-    "ClearAllForwardings=yes",
+    ...strictSshOptions(resolve(identity), knownHostsFile),
     `${sshUser}@${host}`,
   ];
 }
@@ -353,6 +345,8 @@ export async function installRuntime({
   token,
   identity,
   sshUser,
+  knownHostsFile,
+  trustedPublicIp,
   bootstrap,
   nestedPrivateProcfs = "preserve",
   fetchImpl = globalThis.fetch,
@@ -366,6 +360,12 @@ export async function installRuntime({
     throw new CliError("The VPS must be ready and within its active paid term before runtime installation.", {
       exitCode: 5,
     });
+  }
+  if (server.publicIp !== trustedPublicIp) {
+    throw new CliError(
+      "The server public IP changed after SSH host-key trust was established.",
+      { exitCode: 4, code: "host_trust_ip_changed" },
+    );
   }
   const metadata = validateArtifact(bootstrap?.artifact);
   if (!new Set(["preserve", "enable", "disable"]).has(nestedPrivateProcfs)) {
@@ -400,7 +400,7 @@ export async function installRuntime({
   const remoteID = randomUUID().replaceAll("-", "");
   const remoteArchive = `/tmp/warpmetal-runtime-${remoteID}.tar.gz`;
   const remoteBundle = `/tmp/warpmetal-runtime-${remoteID}`;
-  const ssh = sshBase(identity, sshUser, server.publicIp);
+  const ssh = sshBase(identity, sshUser, server.publicIp, knownHostsFile);
   let remoteTouched = false;
   let operationFailed = false;
   try {

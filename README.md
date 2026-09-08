@@ -103,6 +103,19 @@ key does not encode a login username: use `root@<server-ip>` for an owner shell
 and `--ssh-user root` for runtime installation, not a distribution convention
 such as `ubuntu`.
 
+Starting in CLI 0.8.8, `runtime install --confirm INSTALL` establishes managed
+SSH host trust without requiring access to the VPS provider. For a server trust
+epoch with no pin, the CLI runs only a harmless `ssh true` using the exact owner
+key, trusts the first observed Ed25519 host key, stores it under the private
+WarpMetal state directory, and immediately reconnects with strict checking. It
+requests the Runtime bootstrap only after that strict replay succeeds. Every
+later SSH and SCP operation must match the same pin; a changed key is never
+silently accepted or overwritten.
+
+The private WarpMetal state directory is the local trust domain. Back it up
+with the owner key: deleting it also deletes the durable pin, so the next
+install is a new first-use decision rather than a verified continuation.
+
 Pass `--json` for structured, secret-redacted output. Use
 `WARPMETAL_API_URL` for an alternate API origin and `WARPMETAL_HOME` for an
 alternate state directory.
@@ -300,8 +313,9 @@ compatible external signer.
   Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
-- Runtime bootstrap credentials remain memory-only. Signed supervisor bundles
-  are checksum- and signature-verified before OpenSSH uploads them.
+- Runtime bootstrap credentials remain memory-only and are requested only after
+  the first host key has been pinned and strictly reverified. Signed supervisor
+  bundles are checksum- and signature-verified before OpenSSH uploads them.
 - Each agent gets a distinct SSH key forced into exactly one sandbox. Token-free
   connection profiles pin the VPS host key and contain no owner credential or
   private-key material.
@@ -315,10 +329,10 @@ compatible external signer.
   the observed digest and generation both match the accepted target.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
   second acknowledgment, after which the CLI guides supervisor reinstall and
-  pinned connection-profile refresh. Post-reload owner SSH host keys must be
-  independently verified because the provider may rotate or preserve them;
-  update `known_hosts` only when the verified key changed. Erased workspaces
-  are never described as recoverable.
+  pinned connection-profile refresh. Only a locally recorded reload operation
+  that succeeds and reports an owner-host-key refresh opens one new managed
+  trust epoch; failed or ambiguous reloads retain the old pin and never permit
+  replacement. Erased workspaces are never described as recoverable.
 
 ## Agent Runtime example
 
@@ -348,6 +362,13 @@ warpmetal sandbox access keygen \
   --confirm GENERATE \
   --json
 ```
+
+On the first install in a server trust epoch, JSON output includes
+`hostKeyTrust.state: "trusted_first_use"` and the safe Ed25519 fingerprint.
+Later installs report `"matched"`. First-use trust protects continuity after
+that observation, but it cannot detect an active attacker on the first
+connection. Provider-console host-key pre-enrollment remains an optional
+higher-assurance alternative when it is available.
 
 WarpMetal CLI v0.8.7 with Agent Runtime v0.1.25 or newer can enable the narrowly
 scoped AppArmor exception required by a verified workload that creates an inner

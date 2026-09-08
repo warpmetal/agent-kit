@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { CliError } from "./errors.js";
 
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
 const WALLET_PAYMENT_STATE_FIELDS = [
   "walletPaymentAttemptId",
   "walletBuyerPaymentIdentifier",
@@ -159,6 +159,19 @@ function migrateState(value) {
       identities: {},
       renewals: {},
     };
+  }
+  if (
+    value?.version === 3 &&
+    value.orders &&
+    value.servers &&
+    value.operations &&
+    value.runtimes &&
+    value.sandboxes &&
+    value.accessGrants &&
+    value.identities &&
+    value.renewals
+  ) {
+    return { ...value, version: STATE_VERSION };
   }
   return value;
 }
@@ -597,6 +610,46 @@ export class StateStore {
         ...metadata,
         createdAt: new Date().toISOString(),
       };
+      if (kind === "reload") {
+        const server = state.servers[serverId] || { serverId };
+        server.pendingHostTrustReloadOperationId = operationId;
+        state.servers[serverId] = server;
+      }
+    });
+  }
+
+  async hostTrustEpoch(serverId) {
+    return (await this.server(serverId))?.hostTrustEpoch || "initial";
+  }
+
+  async applyReloadHostTrust(serverId, operation) {
+    const operationId = operation?.id;
+    if (
+      typeof operationId !== "string" ||
+      !["succeeded", "failed", "manual_review"].includes(operation?.state)
+    ) {
+      return;
+    }
+    await this.update((state) => {
+      const saved = state.operations[operationId];
+      const server = state.servers[serverId];
+      if (
+        !saved ||
+        saved.serverId !== serverId ||
+        saved.kind !== "reload" ||
+        !server ||
+        server.pendingHostTrustReloadOperationId !== operationId
+      ) {
+        return;
+      }
+      if (
+        operation.state === "succeeded" &&
+        operation.result?.reloadImpact?.ownerKnownHostsNeedRefresh === true
+      ) {
+        server.hostTrustEpoch = `reload-${operationId}`;
+        server.hostTrustReloadOperationId = operationId;
+      }
+      delete server.pendingHostTrustReloadOperationId;
     });
   }
 

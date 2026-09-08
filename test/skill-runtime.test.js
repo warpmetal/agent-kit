@@ -72,6 +72,13 @@ test("bundled skill covers runtime safety and forbids raw fallbacks", async () =
     "x402api wallet notify-refill",
     "subscription reference",
     "reconcile_pending",
+    "CLI 0.8.8",
+    "first observed Ed25519 host key",
+    "before requesting bootstrap",
+    "Failed or ambiguous reloads",
+    "Provider-console pre-enrollment",
+    "active attacker",
+    "Never use `ssh-keyscan`",
   ]) {
     assert.ok(
       combined.includes(required),

@@ -266,11 +266,13 @@ warpmetal server reload \
 ```
 
 The CLI requires the recovery owner credential so it can keep polling after
-reload revokes SSH-derived access tokens. On success, reinstall Agent Runtime
-only after verifying the post-reload owner-facing SSH host-key fingerprint
-through a trusted provider or console channel. The provider may rotate or
-preserve the key; update `known_hosts` only when the verified key changed and
-never bypass a mismatch. Then wait for grants to become applied and refresh
+reload revokes SSH-derived access tokens. CLI 0.8.8 records a new SSH trust
+epoch only when that exact local reload operation succeeds and reports that the
+owner host key needs refresh. The next Runtime install may trust the first
+observed Ed25519 host key once in that epoch, then must reconnect strictly
+before requesting bootstrap. Failed or ambiguous reloads retain the prior pin;
+never bypass a mismatch or delete a pin to force a retry. A provider-console
+pre-seed is the optional higher-assurance path. Then wait for grants to become applied and refresh
 every connection profile with `sandbox access refresh --confirm REFRESH`
 before connecting. Do not fall back to raw API calls for deletion, networking,
 or another unsupported mutation.
@@ -282,6 +284,14 @@ agents. Discover live `agentRuntime` capacity and OS support before choosing
 sizes. Use `--runtime-file` to include sandbox intent in an unpaid order, or
 `warpmetal runtime enable` after the VPS is ready. Supervisor installation is
 separate and requires approval plus `--confirm INSTALL`.
+
+With CLI 0.8.8, that confirmation also authorizes managed trust on first use
+when the exact server trust epoch has no pin. The CLI performs only an owner-
+key-authenticated `ssh true`, pins the first observed Ed25519 key, immediately
+reconnects strictly, and requests bootstrap only afterward. Later connections
+must match. Explain that TOFU cannot detect an active attacker on the first
+connection; never use `ssh-keyscan`, accept a mismatch, or expose a generic pin
+reset.
 
 For any verified workload that creates an inner Bubblewrap PID namespace and
 private `/proc`, CLI 0.8.7 with Runtime 0.1.25 or newer may add

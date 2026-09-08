@@ -13,6 +13,17 @@ import { digestJson } from "../src/payment.js";
 import { generateServerKey } from "../src/ssh.js";
 import { StateStore } from "../src/state.js";
 
+function ed25519HostKeyLine(host) {
+  const type = Buffer.from("ssh-ed25519");
+  const key = Buffer.alloc(32, 7);
+  const material = Buffer.alloc(4 + type.length + 4 + key.length);
+  material.writeUInt32BE(type.length, 0);
+  type.copy(material, 4);
+  material.writeUInt32BE(key.length, 4 + type.length);
+  key.copy(material, 8 + type.length);
+  return `${host} ssh-ed25519 ${material.toString("base64")}\n`;
+}
+
 const paymentRequirement = {
   scheme: "exact",
   network: "eip155:8453",
@@ -139,6 +150,10 @@ test("help explains the nested private procfs lifecycle and use cases", async ()
     /GitHub access, an AI CLI, and subagent delegation alone do not\s+require it/,
   );
   assert.match(stdout.value(), /host-scoped, not per-sandbox/);
+  assert.match(stdout.value(), /SSH host trust \(CLI 0\.8\.8\+\)/);
+  assert.match(stdout.value(), /before requesting a Runtime bootstrap/);
+  assert.match(stdout.value(), /changed key is never accepted or\s+overwritten/);
+  assert.match(stdout.value(), /active attacker on the first connection/);
 });
 
 test("JSON errors include stable CliError codes as structured data", async () => {
@@ -227,6 +242,8 @@ test("runtime install forwards a positive nested private procfs option through t
       signingPublicKey: publicKey.export({ type: "spki", format: "pem" }),
     };
     const calls = [];
+    const timeline = [];
+    let serverReads = 0;
     const bundleFiles = [
       "install.sh",
       "warpmetal-agentctl",
@@ -244,6 +261,30 @@ test("runtime install forwards a positive nested private procfs option through t
     ];
     const spawnImpl = (command, args, options) => {
       calls.push({ command, args, options });
+      timeline.push(
+        command === "ssh" && args.at(-1) === "true"
+          ? `ssh:${args.find((value) => value.startsWith("StrictHostKeyChecking="))}`
+          : `spawn:${command}`,
+      );
+      if (
+        command === "ssh" &&
+        args.includes("StrictHostKeyChecking=accept-new")
+      ) {
+        const knownHosts = args.find((argument) =>
+          argument.startsWith("UserKnownHostsFile="),
+        );
+        writeFileSync(
+          knownHosts.slice("UserKnownHostsFile=".length),
+          ed25519HostKeyLine("203.0.113.10"),
+          { mode: 0o600 },
+        );
+      }
+      if (command === "ssh" && args.includes("-E")) {
+        writeFileSync(
+          args[args.indexOf("-E") + 1],
+          'Authenticated to 203.0.113.10 ([203.0.113.10]:22) using "publickey".\n',
+        );
+      }
       if (command === "tar" && args[0] === "-xzf") {
         const extractPath = args[args.indexOf("-C") + 1];
         mkdirSync(extractPath, { recursive: true });
@@ -256,6 +297,11 @@ test("runtime install forwards a positive nested private procfs option through t
       child.stdout = new PassThrough();
       child.stderr = new PassThrough();
       queueMicrotask(() => {
+        if (command === "ssh") {
+          child.stderr.write(
+            'Authenticated to 203.0.113.10 ([203.0.113.10]:22) using "publickey".\n',
+          );
+        }
         child.stderr.end();
         child.stdout.end();
         child.emit("close", 0);
@@ -283,14 +329,28 @@ test("runtime install forwards a positive nested private procfs option through t
         });
       }
       if (url.pathname.endsWith("/runtime/bootstrap")) {
+        timeline.push("api:bootstrap");
         return jsonResponse(200, {
           artifact,
           bootstrapToken: "rtb_procfs_test",
         });
       }
       if (request.method === "GET" && url.pathname === "/servers/srv_example123") {
+        serverReads += 1;
+        timeline.push(
+          serverReads === 1
+            ? "api:initial-inspect"
+            : serverReads === 2
+              ? "api:reinspect-before-pin"
+              : "api:install-inspect",
+        );
         return jsonResponse(200, {
-          task: { state: "ready", publicIp: "203.0.113.10" },
+          task: {
+            serverId: "srv_example123",
+            state: "ready",
+            publicIp: "203.0.113.10",
+            sshFingerprint: identity.sshFingerprint,
+          },
         });
       }
       throw new Error(`Unexpected test request: ${request.method} ${url.pathname}`);
@@ -326,7 +386,21 @@ test("runtime install forwards a positive nested private procfs option through t
     );
 
     assert.equal(exitCode, 0, stderr.value());
-    assert.equal(JSON.parse(stdout.value()).nestedPrivateProcfsAction, "enable");
+    const output = JSON.parse(stdout.value());
+    assert.equal(output.nestedPrivateProcfsAction, "enable");
+    assert.equal(output.hostKeyTrust.state, "trusted_first_use");
+    assert.ok(
+      timeline.indexOf("ssh:StrictHostKeyChecking=accept-new") <
+        timeline.indexOf("api:reinspect-before-pin"),
+    );
+    assert.ok(
+      timeline.indexOf("api:reinspect-before-pin") <
+        timeline.indexOf("ssh:StrictHostKeyChecking=yes"),
+    );
+    assert.ok(
+      timeline.indexOf("ssh:StrictHostKeyChecking=yes") <
+        timeline.indexOf("api:bootstrap"),
+    );
     const install = calls.find(
       (call) =>
         call.command === "ssh" &&
@@ -335,6 +409,239 @@ test("runtime install forwards a positive nested private procfs option through t
     assert.ok(install);
     const option = install.args.indexOf("--nested-private-procfs");
     assert.equal(install.args[option + 1], "enable");
+    for (const call of calls.filter(({ command }) =>
+      ["ssh", "scp"].includes(command),
+    )) {
+      if (call.args.includes("StrictHostKeyChecking=accept-new")) continue;
+      assert.ok(call.args.includes("StrictHostKeyChecking=yes"));
+      assert.ok(
+        call.args.some((value) => value.startsWith("UserKnownHostsFile=")),
+      );
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runtime install publishes no host pin and requests no bootstrap after API identity drift", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-host-drift-"));
+  const stateDirectory = join(directory, "state");
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    let identity;
+    try {
+      identity = await generateServerKey(join(directory, "keys"), "host-drift");
+    } catch (error) {
+      if (error?.message?.includes("ssh-keygen is required")) {
+        context.skip("ssh-keygen is not installed");
+        return;
+      }
+      throw error;
+    }
+    const serverId = "srv_hostdrift123";
+    let serverReads = 0;
+    let bootstrapRequests = 0;
+    const fetchImpl = async (input, request = {}) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth/challenges")) {
+        return jsonResponse(200, {
+          challengeId: "challenge_host_drift",
+          payload: "warpmetal-ssh-auth-v1\nchallenge\nserver\nnonce\n",
+        });
+      }
+      if (url.pathname.endsWith("/auth/tokens")) {
+        return jsonResponse(200, {
+          accessToken: "sat_host_drift",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        });
+      }
+      if (url.pathname.endsWith("/runtime/bootstrap")) {
+        bootstrapRequests += 1;
+        return jsonResponse(500, {});
+      }
+      if (request.method === "GET" && url.pathname === `/servers/${serverId}`) {
+        serverReads += 1;
+        return jsonResponse(200, {
+          task: {
+            serverId,
+            state: "ready",
+            publicIp:
+              serverReads === 1 ? "203.0.113.10" : "203.0.113.11",
+            sshFingerprint: identity.sshFingerprint,
+          },
+        });
+      }
+      throw new Error(`Unexpected test request: ${request.method} ${url.pathname}`);
+    };
+    const spawnImpl = (command, args, options) => {
+      if (command === "ssh" && args.includes("StrictHostKeyChecking=accept-new")) {
+        const knownHosts = args.find((argument) =>
+          argument.startsWith("UserKnownHostsFile="),
+        );
+        writeFileSync(
+          knownHosts.slice("UserKnownHostsFile=".length),
+          ed25519HostKeyLine("203.0.113.10"),
+          { mode: 0o600 },
+        );
+      }
+      if (command === "ssh" && args.includes("-E")) {
+        writeFileSync(
+          args[args.indexOf("-E") + 1],
+          'Authenticated to 203.0.113.10 ([203.0.113.10]:22) using "publickey".\n',
+        );
+      }
+      const child = new EventEmitter();
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stderr.end();
+        child.stdout.end();
+        child.emit("close", 0);
+      });
+      return child;
+    };
+
+    const exitCode = await main(
+      [
+        "runtime",
+        "install",
+        "--server",
+        serverId,
+        "--identity",
+        identity.privateKeyPath,
+        "--ssh-user",
+        "root",
+        "--confirm",
+        "INSTALL",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, fetchImpl, spawnImpl },
+    );
+
+    assert.equal(exitCode, 4);
+    assert.equal(stdout.value(), "");
+    assert.equal(serverReads, 2);
+    assert.equal(bootstrapRequests, 0);
+    assert.equal(JSON.parse(stderr.value()).error.code, "host_trust_server_changed");
+    const pin = join(
+      stateDirectory,
+      "ssh",
+      "known-hosts",
+      serverId,
+      "initial.known_hosts",
+    );
+    await assert.rejects(readFile(pin), (error) => error.code === "ENOENT");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("runtime install never requests bootstrap when a managed host pin mismatches", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-host-mismatch-"));
+  const stateDirectory = join(directory, "state");
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    let identity;
+    try {
+      identity = await generateServerKey(join(directory, "keys"), "host-mismatch");
+    } catch (error) {
+      if (error?.message?.includes("ssh-keygen is required")) {
+        context.skip("ssh-keygen is not installed");
+        return;
+      }
+      throw error;
+    }
+    const serverId = "srv_mismatch123";
+    const pinDirectory = join(
+      stateDirectory,
+      "ssh",
+      "known-hosts",
+      serverId,
+    );
+    mkdirSync(pinDirectory, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(pinDirectory, "initial.known_hosts"),
+      ed25519HostKeyLine("203.0.113.10"),
+      { mode: 0o600 },
+    );
+    let bootstrapRequests = 0;
+    const fetchImpl = async (input, request = {}) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/auth/challenges")) {
+        return jsonResponse(200, {
+          challengeId: "challenge_host_mismatch",
+          payload: "warpmetal-ssh-auth-v1\nchallenge\nserver\nnonce\n",
+        });
+      }
+      if (url.pathname.endsWith("/auth/tokens")) {
+        return jsonResponse(200, {
+          accessToken: "sat_host_mismatch",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        });
+      }
+      if (url.pathname.endsWith("/runtime/bootstrap")) {
+        bootstrapRequests += 1;
+        return jsonResponse(500, {});
+      }
+      if (request.method === "GET" && url.pathname === `/servers/${serverId}`) {
+        return jsonResponse(200, {
+          task: {
+            serverId,
+            state: "ready",
+            publicIp: "203.0.113.10",
+            sshFingerprint: identity.sshFingerprint,
+          },
+        });
+      }
+      throw new Error(`Unexpected test request: ${request.method} ${url.pathname}`);
+    };
+    const spawnImpl = (command, args, options) => {
+      const child = new EventEmitter();
+      child.stdin = new PassThrough();
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stderr.end("Host key verification failed.\n");
+        child.stdout.end();
+        child.emit("close", command === "ssh" ? 255 : 0);
+      });
+      return child;
+    };
+    const exitCode = await main(
+      [
+        "runtime",
+        "install",
+        "--server",
+        serverId,
+        "--identity",
+        identity.privateKeyPath,
+        "--ssh-user",
+        "root",
+        "--confirm",
+        "INSTALL",
+        "--base-url",
+        "https://api.warpmetal.test",
+        "--state-dir",
+        stateDirectory,
+        "--json",
+      ],
+      { stdout: stdout.stream, stderr: stderr.stream, env: {}, fetchImpl, spawnImpl },
+    );
+    assert.equal(exitCode, 4);
+    assert.equal(stdout.value(), "");
+    assert.equal(bootstrapRequests, 0);
+    assert.equal(JSON.parse(stderr.value()).error.code, "host_trust_authentication_failed");
+    assert.equal(
+      await readFile(join(pinDirectory, "initial.known_hosts"), "utf8"),
+      ed25519HostKeyLine("203.0.113.10"),
+    );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
