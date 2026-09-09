@@ -90,11 +90,14 @@ open either file.
 
 In an interactive initial purchase, the result may also contain
 `humanCheckout`. Offer it as an alternative to the local agent wallet. Show
-`humanCheckout.url` as clickable text and render only the identical
-`humanCheckout.qrPayload` URL as the purchase QR; never render the recipient
-address as this QR. The URL is an expiring bearer capability, so do not log,
-save, or send it anywhere except to the buyer who requested this purchase. If
-the buyer uses it, do not authorize or submit through the agent wallet. Run the
+`humanCheckout.url` as clickable x402api text. If another-device acquisition
+is useful, render only the identical `humanCheckout.qrPayload` URL as a QR and
+explain that scanning opens the hosted checkout without authorizing payment.
+x402api owns any wallet selection and wallet-specific opening QR inside that
+page; never synthesize a wallet link or render the recipient address as this
+QR. The URL is an expiring bearer capability, so do not log, save, or send it
+anywhere except to the buyer who requested this purchase. If the buyer uses it,
+do not authorize or submit through the agent wallet. Run the
 exact `humanCheckout.afterPayment.argv` command, wait for the server to become
 ready, then follow `ask_human_for_notification_email`: ask the owner for the
 optional lifecycle-notification address and add only the address they provide.

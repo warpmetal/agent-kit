@@ -156,11 +156,15 @@ receipt finality while provisioning or renewal proceeds.
 
 For an interactive initial purchase, `checkout challenge` may also return a
 short-lived `humanCheckout` object. Its `url` and `qrPayload` are the same
-`https://pay.x402api.com/c/...` bearer capability for the exact charge; encode
-that URL as the QR, never the WarpMetal recipient address. The buyer connects
-their own wallet and needs only the advertised USDC/USDT balance because
-x402api sponsors the native gas. This is an alternative to the agent-wallet
-workflow, not a second payment. After browser payment, run the exact
+`https://pay.x402api.com/c/...` bearer capability for the exact charge.
+Present the exact URL as a clickable x402api handoff. If a QR is useful for
+another device, encode only the identical `qrPayload` and explain that
+scanning opens the hosted checkout without authorizing payment. x402api owns
+any wallet selection or wallet-specific opening QR inside that page; never
+synthesize a wallet link or encode the WarpMetal recipient address. The buyer
+needs only the advertised USDC/USDT balance because x402api sponsors the native
+gas. This is an alternative to the agent-wallet workflow, not a second
+payment. After browser payment, run the exact
 `humanCheckout.afterPayment.argv` status command. When the ready result asks
 for `ask_human_for_notification_email`, ask the owner and add the optional
 lifecycle-notification address they provide. Autonomous purchases and renewals

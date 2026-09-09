@@ -887,7 +887,7 @@ async function handleCheckoutChallenge(client, store, options, context) {
     stringOption(options, "request-envelope-out"),
   );
   const directCheckoutInstructions = safe.humanCheckout
-    ? `\nDirect wallet checkout (optional, expires ${safe.humanCheckout.expiresAt}): ${safe.humanCheckout.url}\nEncode only that URL as the purchase QR. After payment, continue with: ${shellCommand(safe.humanCheckout.afterPayment.argv)}. When provisioning is ready, ask the owner for the optional lifecycle-notification email before adding it.`
+    ? `\nHosted human checkout (optional, expires ${safe.humanCheckout.expiresAt}): ${safe.humanCheckout.url}\nOpen this exact x402api link. If another-device acquisition is useful, encode only the returned QR URL; scanning opens the checkout and does not authorize payment. x402api owns wallet selection and explicit approval. After payment, continue with: ${shellCommand(safe.humanCheckout.afterPayment.argv)}. When provisioning is ready, ask the owner for the optional lifecycle-notification email before adding it.`
     : "";
   const paymentInstructions = safe.paymentWorkflow
     ? `\nWallet package: ${safe.paymentWorkflow.signerPackage.spec} (Node ${safe.paymentWorkflow.signerNodeRequirement})\nInstall: ${shellCommand(safe.paymentWorkflow.signerPackage.install.argv)}\nVerify: ${shellCommand(safe.paymentWorkflow.signerContract.probe.argv)}\n${walletWorkflowInstructions(safe.paymentWorkflow)}\nRequest envelope: ${safe.paymentWorkflow.requestEnvelopePath}\nAuthorize only after selecting/funding one wallet: ${shellCommand(safe.paymentWorkflow.authorize.argv)}\nSubmit with WarpMetal: ${shellCommand(safe.paymentWorkflow.submit.argv)}`

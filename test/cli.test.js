@@ -1003,8 +1003,14 @@ test("CLI prepares, challenges, and submits without exposing the owner token", a
       },
     );
     assert.equal(humanChallengeExit, 7, humanChallengeErr.value());
-    assert.match(humanChallengeOut.value(), /Direct wallet checkout \(optional/);
+    assert.match(humanChallengeOut.value(), /Hosted human checkout \(optional/);
     assert.equal(humanChallengeOut.value().includes(hostedCheckoutUrl), true);
+    assert.match(
+      humanChallengeOut.value(),
+      /scanning opens the checkout and does not authorize payment/,
+    );
+    assert.match(humanChallengeOut.value(), /x402api owns wallet selection/);
+    assert.doesNotMatch(humanChallengeOut.value(), /purchase QR|Direct wallet checkout/);
     assert.match(humanChallengeOut.value(), /warpmetal order status/);
     assert.match(humanChallengeOut.value(), /lifecycle-notification email/);
 

@@ -75,8 +75,11 @@ workflow.
 For interactive initial purchases, the response may additionally include
 `humanCheckout.url`, the identical `qrPayload`, `expiresAt`, and an exact
 `afterPayment.argv` command. The URL is a short-lived bearer capability for the
-same charge, not a recipient address. If the buyer pays in the hosted checkout,
-do not submit an agent-wallet artifact; run the returned status command and,
+same charge, not a recipient address. Present the URL as a clickable x402api
+handoff. An optional QR contains that exact web link for another-device
+acquisition; scanning it does not authorize payment, and x402api owns any
+wallet-specific choices inside the hosted page. If the buyer pays there, do not
+submit an agent-wallet artifact; run the returned status command and,
 after ready, follow `ask_human_for_notification_email` to offer lifecycle
 notices. The CLI does not persist the hosted URL. Renewal commands never expose
 or use this interactive option.

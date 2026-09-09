@@ -2,7 +2,7 @@
 
 Status: P4 release active; P1-P3 complete
 Owner: WarpMetal CLI and WarpMetal public API
-Last updated: 2026-09-06
+Last updated: 2026-09-08
 
 ## Outcome
 
@@ -159,3 +159,18 @@ merges and registry releases retain their independent CI and credential gates.
   patch and keep the API projection undeployed.
 - Never revoke or rotate x402api hosted capabilities as a rollback substitute;
   their normal charge expiry remains authoritative.
+
+## Post-release hosted-wallet compatibility amendment
+
+x402api production deployment
+`d3b6dc42c2efe5842ad30804741ec48cbcc4575e` keeps the existing
+`human_checkout_url` and identical `qr_payload` wire contract. The canonical
+URL is an acquisition handoff to `pay.x402api.com`, not a recipient address,
+token-transfer request, signature, or authorization. Human-readable CLI and
+skill guidance therefore presents the clickable URL first and describes an
+optional QR only as another-device navigation. x402api owns qualified wallet
+selection, mobile wallet-browser opening, desktop wallet-specific QR
+presentation, explicit buyer authorization, and submission. The CLI does not
+add a wallet connector, synthesize wallet links, persist the capability, or
+change autonomous Agent Wallet behavior. This amendment authorizes tests and a
+pull request only; it does not authorize an npm publication.
