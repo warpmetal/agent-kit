@@ -2,7 +2,7 @@
 
 Status: P4 release active; P1-P3 complete
 Owner: WarpMetal CLI and WarpMetal public API
-Last updated: 2026-09-08
+Last updated: 2026-09-09
 
 ## Outcome
 
@@ -19,7 +19,7 @@ the optional direct-checkout object.
 | F1 | fact | x402api production returns optional paired `human_checkout_url` and `qr_payload` on eligible programmatic charges; `expires_at` is their authority. | production OpenAPI source SHA `7387674e566a3de2f1e8519956fe55b79c78b648` | verified |
 | F2 | fact | WarpMetal currently creates the exact charge but does not project the hosted-checkout fields into its HTTP 402 body. | `backend/warpmetal/payments.py` and `backend/warpmetal/routes.py` on `origin/main` | verified |
 | F3 | fact | `warpmetal checkout challenge` already returns an agent-wallet workflow and does not render a QR itself. | `src/cli.js`, `src/payment.js`, CLI reference | verified |
-| F4 | fact | The public CLI is `warpmetal@0.8.5`; tag pushes run check, tests, pack, and trusted npm publication. | npm registry and `.github/workflows/publish.yml` | verified |
+| F4 | fact | The public CLI is `warpmetal@0.8.8`; current `main` contains the reviewed hosted-wallet handoff amendment and tag pushes run check, tests, pack, and trusted npm publication. | npm registry, `main` `8a17bc07e651f0c3046893ef5b003cff4ff3a8ff`, and `.github/workflows/publish.yml` | verified |
 | A1 | assumption | Direct checkout is an interactive initial-purchase option, not an unattended renewal action. | user flow and prior approved design | accepted |
 | A2 | assumption | A clickable URL plus an identical `qrPayload` in JSON is the appropriate CLI boundary; the calling UI/agent renders the QR. | existing CLI presentation contract avoids runtime QR dependencies | accepted |
 | A3 | assumption | The configured hosted-checkout origin is `https://pay.x402api.com`. | deployed x402api public origin | verified |
@@ -174,3 +174,24 @@ presentation, explicit buyer authorization, and submission. The CLI does not
 add a wallet connector, synthesize wallet links, persist the capability, or
 change autonomous Agent Wallet behavior. This amendment authorizes tests and a
 pull request only; it does not authorize an npm publication.
+
+## P4 release authorization amendment
+
+On 2026-09-09 the product owner separately authorized tagging and publishing
+the merged CLI. The next immutable patch is `warpmetal@0.8.9`: `0.8.8` is
+already published and tag `v0.8.8` points to the preceding main revision, while
+neither npm nor the local/remote Git tag namespace contains `0.8.9`.
+
+The release must be prepared from exact current `main`
+`8a17bc07e651f0c3046893ef5b003cff4ff3a8ff`, change only package version metadata
+and this release record, pass check/tests/audit/pack, merge through a reviewed
+PR, and tag the resulting main commit as `v0.8.9`. The official trusted-publish
+workflow remains the only npm publisher. Completion requires a successful tag
+workflow, npm registry metadata resolving exactly `0.8.9`, an isolated exact-
+version install, and `--version`/help smoke tests. The package is immutable after
+publication; recovery for a defect is a new patch and npm deprecation rather
+than moving or replacing the tag.
+
+Status: P4 release authorized and in progress. No API, authentication,
+authorization, persistence, or wire-contract change is included in the version
+bump.
