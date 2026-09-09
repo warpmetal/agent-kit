@@ -1,6 +1,6 @@
 # Hosted Checkout CLI Plan
 
-Status: P4 release active; P1-P3 complete
+Status: P4 release complete; P1-P4 complete; P5 pending
 Owner: WarpMetal CLI and WarpMetal public API
 Last updated: 2026-09-09
 
@@ -144,6 +144,19 @@ both hosted-checkout and ready-status tests.
 Gate: exact npm artifact is publicly installable and the production WarpMetal
 health gate remains green.
 
+Result: complete. Release PR #34 merged version-only head
+`5a9a8f26d5b3f7be54d875f5d0117b78d5ae90be` as main commit
+`180c33b26d10d93d3ac58111ca2c646d4671e4e7`. Annotated tag `v0.8.9` resolves
+exactly to that commit. Trusted-publish workflow `34352294216` passed its
+tag/version assertion, clean install, syntax check, 88/88 tests, pack check, and
+npm publish with signed provenance. The public registry reports
+`warpmetal@0.8.9` as `latest`, tarball SHA-1
+`5e81ccb5c5a3792bada90489173ac8036b66bdd1`, and integrity
+`sha512-cPKi/P+eQwmvaWNEQ7M19gqwOSsxAFDTw5nGBmto7wflhvVpImpYmOLZH9lGWYqEfBMmV1zCmW88d6pSzfbfig==`.
+An isolated exact-version install returned `warpmetal --version` as `0.8.9` and
+the help smoke test passed. The production WarpMetal health endpoint remained
+`status: ok` and `purchasingReady: true` with all reported dependencies true.
+
 ### P5 — SDK continuation
 
 Resume the already-open x402api SDK pull requests only after P4. SDK source
@@ -192,6 +205,7 @@ version install, and `--version`/help smoke tests. The package is immutable afte
 publication; recovery for a defect is a new patch and npm deprecation rather
 than moving or replacing the tag.
 
-Status: P4 release authorized and in progress. No API, authentication,
-authorization, persistence, or wire-contract change is included in the version
-bump.
+Status: P4 release completed. No API, authentication, authorization,
+persistence, or wire-contract change was included in the version bump. No paid
+order, wallet authorization, or provisioning action was created for the release
+verification.
