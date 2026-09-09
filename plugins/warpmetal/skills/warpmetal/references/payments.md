@@ -125,9 +125,13 @@ argv arrays returned under `paymentWorkflow`:
 
 For an interactive initial purchase, an optional `humanCheckout` object offers
 a second presentation path for the same charge. Its `url` and `qrPayload` must
-be identical hosted-checkout URLs; render that URL as the QR and copyable link,
-never a recipient address. If the buyer completes this path, skip agent-wallet
-authorization and run `humanCheckout.afterPayment.argv`. Continue bounded
+be identical hosted-checkout URLs. Present `url` as the clickable x402api
+handoff. If a QR is useful for another device, render only the exact
+`qrPayload` and explain that scanning opens the checkout without authorizing
+payment. x402api owns wallet selection and any wallet-specific opening QR
+inside that page; never synthesize a wallet link or render a recipient address.
+If the buyer completes this path, skip agent-wallet authorization and run
+`humanCheckout.afterPayment.argv`. Continue bounded
 status polling until ready, then ask for the optional lifecycle-notification
 email when the result returns `ask_human_for_notification_email`. The hosted
 URL expires at `humanCheckout.expiresAt`, is not persisted by the CLI, and is
