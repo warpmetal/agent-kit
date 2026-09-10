@@ -216,7 +216,6 @@ warpmetal runtime get --server <serverId> [--wait] [--timeout-seconds <n>] --jso
 warpmetal runtime install \
   --server <serverId> [--identity <owner-key>] --ssh-user root \
   --confirm INSTALL \
-  [--nested-private-procfs <preserve|enable|disable>] \
   [--wait] [--timeout-seconds <n>] --json
 
 warpmetal sandbox create \
@@ -244,15 +243,6 @@ requesting bootstrap. JSON reports `hostKeyTrust.state` as
 SCP operation is strict; changed keys, malformed pins, and failed or ambiguous
 reloads never replace trust. This TOFU step cannot detect an active attacker on
 the first connection. Provider-console pre-enrollment is optional and stronger.
-
-The nested-private-procfs action requires CLI 0.8.7 and Runtime 0.1.25 or
-newer. It defaults to `preserve`. `enable` is a host-level opt-in for any
-verified workload that creates an inner Bubblewrap PID namespace and private
-`/proc`; read-only planning, single-workspace coding, and independent QA are
-common examples. GitHub use, an AI CLI, or subagent delegation alone does not
-require it. `disable` unloads WarpMetal's policy and restores the recorded
-pre-enable state. It is not a per-sandbox capability because Runtime sandboxes
-share one Unix owner.
 
 See [runtime.md](runtime.md) for capacity, lifetime, cleanup, polling, and
 installation safety. Exit 8 means accepted or pending, never applied.
