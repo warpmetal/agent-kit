@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -50,15 +50,20 @@ function spawnRecorder({
   failInstall = false,
   installError = "install failed",
   bundleFiles = BASE_BUNDLE_FILES,
+  bundleSymlinks = [],
 } = {}) {
   const calls = [];
+  const symlinks = new Set(bundleSymlinks);
   const spawnImpl = (command, args, options) => {
     calls.push({ command, args, options });
     if (command === "tar" && args[0] === "-xzf") {
       const extractPath = args[args.indexOf("-C") + 1];
       mkdirSync(extractPath, { recursive: true });
-      for (const file of bundleFiles)
-        writeFileSync(`${extractPath}/${file}`, "fixture");
+      for (const file of bundleFiles) {
+        if (symlinks.has(file))
+          symlinkSync("install.sh", `${extractPath}/${file}`);
+        else writeFileSync(`${extractPath}/${file}`, "fixture");
+      }
     }
     const child = new EventEmitter();
     child.stdin = new PassThrough();
@@ -133,13 +138,10 @@ test("runtime artifact requires both checksum and signature", () => {
 
 test("runtime installation uses argument arrays and removes remote staging", async () => {
   const recorder = spawnRecorder();
-  const fixture = installFixture({
-    nestedPrivateProcfs: "preserve",
-    spawnImpl: recorder.spawnImpl,
-  });
+  const fixture = installFixture({ spawnImpl: recorder.spawnImpl });
   const result = await installRuntime(fixture.arguments);
   assert.equal(result.installed, true);
-  assert.equal(result.nestedPrivateProcfsAction, "preserve");
+  assert.equal(Object.hasOwn(result, "nestedPrivateProcfsAction"), false);
   assert.ok(recorder.calls.every((call) => call.options.shell === false));
   for (const call of recorder.calls.filter(({ command }) =>
     ["ssh", "scp"].includes(command),
@@ -172,16 +174,59 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   );
 });
 
-test("runtime v0.1.25 accepts the exact policy bundle and preserves policy state by default", async () => {
+for (const version of ["0.1.25", "0.1.26"]) {
+  test(`runtime ${version} accepts the exact immutable legacy policy bundle`, async () => {
+    const recorder = spawnRecorder({ bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES });
+    const fixture = installFixture({
+      artifactVersion: version,
+      spawnImpl: recorder.spawnImpl,
+    });
+
+    const result = await installRuntime(fixture.arguments);
+
+    assert.equal(result.installed, true);
+    assert.equal(Object.hasOwn(result, "nestedPrivateProcfsAction"), false);
+    const install = recorder.calls.find(
+      (call) =>
+        call.command === "ssh" &&
+        call.args.some((argument) => argument.endsWith("/install.sh")),
+    );
+    assert.ok(install);
+    assert.equal(install.args.includes("--nested-private-procfs"), false);
+  });
+}
+
+for (const version of ["0.1.27", "0.2.0", "1.0.0"]) {
+  test(`runtime ${version} accepts the exact stripped base-only bundle`, async () => {
+    const recorder = spawnRecorder({ bundleFiles: BASE_BUNDLE_FILES });
+    const fixture = installFixture({
+      artifactVersion: version,
+      spawnImpl: recorder.spawnImpl,
+    });
+
+    const result = await installRuntime(fixture.arguments);
+
+    assert.equal(result.installed, true);
+    assert.equal(Object.hasOwn(result, "nestedPrivateProcfsAction"), false);
+    const install = recorder.calls.find(
+      (call) =>
+        call.command === "ssh" &&
+        call.args.some((argument) => argument.endsWith("/install.sh")),
+    );
+    assert.ok(install);
+    assert.equal(install.args.includes("--nested-private-procfs"), false);
+  });
+}
+
+test("runtime installer never forwards or returns a legacy nested action", async () => {
   const recorder = spawnRecorder({ bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES });
   const fixture = installFixture({
-    artifactVersion: "0.1.25",
+    artifactVersion: "0.1.26",
+    nestedPrivateProcfs: "enable",
     spawnImpl: recorder.spawnImpl,
   });
 
   const result = await installRuntime(fixture.arguments);
-
-  assert.equal(result.nestedPrivateProcfsAction, "preserve");
   const install = recorder.calls.find(
     (call) =>
       call.command === "ssh" &&
@@ -189,84 +234,38 @@ test("runtime v0.1.25 accepts the exact policy bundle and preserves policy state
   );
   assert.ok(install);
   assert.equal(install.args.includes("--nested-private-procfs"), false);
+  assert.equal(Object.hasOwn(result, "nestedPrivateProcfsAction"), false);
 });
 
-for (const action of ["enable", "disable"]) {
-  test(`runtime v0.1.25 forwards the explicit nested private procfs ${action} action`, async () => {
-    const recorder = spawnRecorder({ bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES });
-    const fixture = installFixture({
-      artifactVersion: "0.1.25",
-      nestedPrivateProcfs: action,
-      spawnImpl: recorder.spawnImpl,
-    });
-
-    const result = await installRuntime(fixture.arguments);
-
-    assert.equal(result.nestedPrivateProcfsAction, action);
-    const install = recorder.calls.find(
-      (call) =>
-        call.command === "ssh" &&
-        call.args.some((argument) => argument.endsWith("/install.sh")),
-    );
-    assert.ok(install);
-    const option = install.args.indexOf("--nested-private-procfs");
-    assert.equal(install.args[option + 1], action);
-  });
-}
-
-test("older Runtime artifacts reject nested private procfs actions before upload", async () => {
-  const recorder = spawnRecorder();
-  const fixture = installFixture({
-    nestedPrivateProcfs: "enable",
-    spawnImpl: recorder.spawnImpl,
-  });
-
-  await assert.rejects(
-    () => installRuntime(fixture.arguments),
-    /does not support nested private procfs actions/,
-  );
-  assert.equal(recorder.calls.length, 0);
-});
-
-test("runtime installation rejects an unknown nested private procfs action", async () => {
-  const recorder = spawnRecorder({ bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES });
-  const fixture = installFixture({
-    artifactVersion: "0.1.25",
-    nestedPrivateProcfs: "automatic",
-    spawnImpl: recorder.spawnImpl,
-  });
-
-  await assert.rejects(
-    () => installRuntime(fixture.arguments),
-    /nested private procfs action is invalid/,
-  );
-  assert.equal(recorder.calls.length, 0);
-});
-
-test("runtime v0.1.25 rejects a bundle missing a policy file before upload", async () => {
-  const recorder = spawnRecorder({
-    bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES.filter(
+for (const [version, bundleFiles, symlinkFile] of [
+  [
+    "0.1.26",
+    PRIVATE_PROCFS_BUNDLE_FILES.filter(
       (file) => file !== "warpmetal-policy-metadata",
     ),
-  });
-  const fixture = installFixture({
-    artifactVersion: "0.1.25",
-    spawnImpl: recorder.spawnImpl,
-  });
-
-  await assert.rejects(
-    () => installRuntime(fixture.arguments),
-    /bundle files do not match this CLI version/,
-  );
-  assert.equal(recorder.calls.some((call) => call.command === "scp"), false);
-});
-
-for (const [version, bundleFiles] of [
-  ["0.1.24", [...BASE_BUNDLE_FILES, "unexpected-policy-helper"]],
-  ["0.1.25", [...PRIVATE_PROCFS_BUNDLE_FILES, "unexpected-policy-helper"]],
+  ],
+  [
+    "0.1.27",
+    BASE_BUNDLE_FILES.filter((file) => file !== "warpmetal-sandbox.conf"),
+  ],
+  ["0.1.26", [...PRIVATE_PROCFS_BUNDLE_FILES, "unexpected-policy-helper"]],
+  ["0.1.27", [...BASE_BUNDLE_FILES, "unexpected-policy-helper"]],
+  ["0.1.26", PRIVATE_PROCFS_BUNDLE_FILES, "warpmetal-policy-metadata"],
+  ["0.1.27", BASE_BUNDLE_FILES, "warpmetal-sandbox.conf"],
 ]) {
-  test(`runtime ${version} rejects an unexpected bundle file before upload`, async () => {
-    const recorder = spawnRecorder({ bundleFiles });
+  const violation = symlinkFile
+    ? "a symlink"
+    : bundleFiles.length <
+        (version === "0.1.26"
+          ? PRIVATE_PROCFS_BUNDLE_FILES.length
+          : BASE_BUNDLE_FILES.length)
+      ? "a missing file"
+      : "an extra file";
+  test(`runtime ${version} rejects ${violation} before upload`, async () => {
+    const recorder = spawnRecorder({
+      bundleFiles,
+      bundleSymlinks: symlinkFile ? [symlinkFile] : [],
+    });
     const fixture = installFixture({
       artifactVersion: version,
       spawnImpl: recorder.spawnImpl,
@@ -327,7 +326,6 @@ test("runtime installation rejects a cancelled server after its paid term", asyn
   );
   assert.equal(recorder.calls.length, 0);
 });
-
 test("runtime installation still removes remote staging after failure", async () => {
   const recorder = spawnRecorder({ failInstall: true });
   const fixture = installFixture({ spawnImpl: recorder.spawnImpl });
@@ -357,52 +355,4 @@ test("runtime installation maps fail-closed host checks without raw package outp
   const cleanup = recorder.calls.at(-1);
   assert.equal(cleanup.command, "ssh");
   assert.deepEqual(cleanup.args.slice(-6, -2), ["sudo", "rm", "-rf", "--"]);
-});
-
-test("runtime installation maps nested private procfs failures without raw host output", async () => {
-  const recorder = spawnRecorder({
-    failInstall: true,
-    installError:
-      "apparmor_parser emitted private host state\nruntime_apparmor_policy_rollback_failed\n",
-    bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES,
-  });
-  const fixture = installFixture({
-    artifactVersion: "0.1.25",
-    nestedPrivateProcfs: "enable",
-    spawnImpl: recorder.spawnImpl,
-  });
-
-  await assert.rejects(
-    () => installRuntime(fixture.arguments),
-    (error) => {
-      assert.equal(error.code, "runtime_apparmor_policy_rollback_failed");
-      assert.match(error.message, /operator recovery is required/);
-      assert.doesNotMatch(error.message, /apparmor_parser emitted/);
-      return true;
-    },
-  );
-});
-
-test("runtime rollback failure takes priority over an ordinary policy failure", async () => {
-  const recorder = spawnRecorder({
-    failInstall: true,
-    installError:
-      "runtime_apparmor_policy_install_failed\nruntime_apparmor_policy_rollback_failed\n",
-    bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES,
-  });
-  const fixture = installFixture({
-    artifactVersion: "0.1.25",
-    nestedPrivateProcfs: "enable",
-    spawnImpl: recorder.spawnImpl,
-  });
-
-  await assert.rejects(
-    () => installRuntime(fixture.arguments),
-    (error) => {
-      assert.equal(error.code, "runtime_apparmor_policy_rollback_failed");
-      assert.match(error.message, /operator recovery is required/);
-      assert.doesNotMatch(error.message, /install_failed/);
-      return true;
-    },
-  );
 });

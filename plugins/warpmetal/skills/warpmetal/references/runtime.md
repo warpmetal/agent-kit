@@ -58,7 +58,6 @@ warpmetal runtime install \
   --identity <owner-private-key-path> \
   --ssh-user root \
   --confirm INSTALL \
-  [--nested-private-procfs <preserve|enable|disable>] \
   --wait \
   --json
 warpmetal runtime get --server <serverId> --wait --json
@@ -80,29 +79,6 @@ detect an active attacker on that connection. Provider-console pre-enrollment
 is an optional higher-assurance alternative, not a requirement. Only a locally
 recorded successful reload that reports an owner-host-key refresh creates one
 new operation-bound trust epoch; failed or ambiguous reloads do not.
-
-`--nested-private-procfs` is supported by `warpmetal` CLI 0.8.7 with Agent
-Runtime 0.1.25 or newer. Its default is `preserve`, which makes no AppArmor
-policy change. Select `enable` only when this VPS is intentionally dedicated to
-a verified workload that creates an inner Bubblewrap PID namespace and private
-procfs. Ordinary VPS users and Runtime workloads that rely only on the outer
-sandbox do not need it. Select `disable` only during an approved maintenance
-action to unload WarpMetal's policy and restore the exact file and loaded-policy
-state that existed before enablement.
-
-Examples include a planner with an exact read-only checkout, a coder with only
-one approved checkout and output directory writable, and QA with an exact
-candidate plus isolated test processes and scratch space. This protects a
-persistent trusted runner from repository-controlled commands and sibling
-attempts. GitHub access, installing an AI CLI, and subagent delegation alone do
-not require nested private procfs.
-
-This setting is host-scoped, not sandbox-scoped. Runtime sandboxes share one
-Unix owner, so every sandbox on the host can use the exception only through the
-signed, root-owned, fixed bwrap path matched by the policy. Enabling it does not
-authorize arbitrary bwrap binaries or change the trust boundary for the
-Runtime image selected by WarpMetal's authenticated backend. Isolate workloads
-on separate VPS hosts if they must not share this host capability.
 
 The signed installer is designed to preserve container workloads already
 running on a supported host. It selects `crun` for WarpMetal's private rootless
@@ -128,17 +104,6 @@ host automatically:
   unexpectedly; stop and review the host package logs;
 - `runtime_legacy_migration_required`: preview Podman state needs a separate,
   explicitly reviewed migration and was not reset.
-- `runtime_nested_private_procfs_architecture_unsupported`: the requested
-  coding-host policy is unsupported by this CPU architecture;
-- `runtime_apparmor_state_unverifiable`: the host's current AppArmor state
-  cannot be established safely;
-- `runtime_apparmor_policy_conflict`: an existing file or loaded-policy state
-  conflicts with WarpMetal's recorded transaction;
-- `runtime_apparmor_policy_rollback_failed`: the installer could not restore
-  the exact prior AppArmor state; stop and perform operator recovery.
-- `runtime_apparmor_policy_recovery_failed`: an interrupted prior policy
-  transaction could not be recovered; stop and perform operator recovery.
-
 There is no force bypass. If `runtime_reboot_required` is returned, schedule
 the reboot as a separate maintenance action and retry only after the host and
 its existing workloads are healthy. The ordinary installer never installs a

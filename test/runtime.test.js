@@ -72,6 +72,14 @@ const product = {
   },
 };
 
+const REMOVED_TOOL_FIELDS = [
+  "cliTools",
+  "observedCliTools",
+  "tools",
+  "toolManifest",
+  "allToolsInstalled",
+];
+
 test("argument parser preserves SSH command tokens after --", () => {
   const parsed = parseArguments([
     "sandbox",
@@ -123,9 +131,16 @@ test("runtime validation is persistent by default and temporary is bounded", () 
       ]),
     /requires lifetime temporary/,
   );
+  assert.throws(
+    () =>
+      validateSandboxBatch([
+        { name: "review", size: "small", cliTools: ["codex"] },
+      ]),
+    /unsupported field: cliTools/,
+  );
 });
 
-test("order runtime file sends exact intent without changing checkout body", async () => {
+test("capacity-only order works with a tool-free catalog and sends exact intent", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-runtime-order-"));
   const stateDirectory = join(directory, "state");
   const runtimeFile = join(directory, "runtime.json");
@@ -405,7 +420,7 @@ test("runtime-enabled reload stops before mutation without reset acknowledgment"
   assert.match(stderr.value(), /acknowledge-agent-runtime-reset/i);
 });
 
-test("sandbox creation uses the fixed public contract and reports pending as exit 8", async () => {
+test("capacity-only sandbox creation works with tool-free catalog and response JSON", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-sandbox-create-"));
   const requests = [];
   const fetchImpl = async (url, request = {}) => {
@@ -480,6 +495,105 @@ test("sandbox creation uses the fixed public contract and reports pending as exi
           expiresInSeconds: 900,
         },
       ],
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("capacity-only sandbox list, get, and restart accept tool-free JSON", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-sandbox-capacity-"));
+  const sandbox = {
+    id: "sbx_review12345",
+    name: "review",
+    size: "small",
+    lifetime: "persistent",
+    desiredState: "running",
+    observedState: "running",
+    generation: 2,
+    observedGeneration: 2,
+  };
+  const requests = [];
+  const fetchImpl = async (url, request = {}) => {
+    const path = new URL(url).pathname;
+    const method = request.method || "GET";
+    requests.push({ path, method, body: request.body });
+    if (method === "GET" && path.endsWith("/sandboxes")) {
+      return jsonResponse(200, {
+        runtime: { state: "ready", desiredRevision: 2, appliedRevision: 2 },
+        sandboxes: [sandbox],
+      });
+    }
+    if (method === "GET" && path.endsWith(`/sandboxes/${sandbox.id}`)) {
+      return jsonResponse(200, { sandbox });
+    }
+    if (method === "POST" && path.endsWith(`/sandboxes/${sandbox.id}/actions`)) {
+      return jsonResponse(202, { sandbox });
+    }
+    return jsonResponse(404, { error: { message: "not found" } });
+  };
+  const run = async (argv) => {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await main(
+      [
+        ...argv,
+        "--base-url",
+        "http://localhost",
+        "--state-dir",
+        join(directory, "state"),
+        "--json",
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { WARPMETAL_OWNER_TOKEN: "owner-management-secret" },
+        fetchImpl,
+      },
+    );
+    assert.equal(code, 0, stderr.value());
+    return JSON.parse(stdout.value());
+  };
+
+  try {
+    const listed = await run([
+      "sandbox",
+      "list",
+      "--server",
+      "srv_runtime12345",
+    ]);
+    const fetched = await run([
+      "sandbox",
+      "get",
+      "--server",
+      "srv_runtime12345",
+      "--sandbox",
+      sandbox.id,
+    ]);
+    const restarted = await run([
+      "sandbox",
+      "action",
+      "--server",
+      "srv_runtime12345",
+      "--sandbox",
+      sandbox.id,
+      "--action",
+      "restart",
+      "--confirm",
+      "restart",
+    ]);
+
+    for (const result of [listed.sandboxes[0], fetched.sandbox, restarted.sandbox]) {
+      for (const field of REMOVED_TOOL_FIELDS) {
+        assert.equal(Object.hasOwn(result, field), false);
+      }
+    }
+    const restart = requests.find(
+      (request) =>
+        request.method === "POST" && request.path.endsWith("/actions"),
+    );
+    assert.deepEqual(JSON.parse(restart.body), {
+      action: "restart",
     });
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -595,7 +709,7 @@ test("sandbox image refresh waits for both digest and generation", async () => {
   assert.equal(JSON.parse(stdout.value()).sandbox.imageDigest, targetDigest);
 });
 
-test("applied access grant writes a token-free profile without printing it", async () => {
+test("capacity-only access grant works without tool fields and writes a token-free profile", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-access-grant-"));
   const stateDirectory = join(directory, "state");
   const publicKeyPath = join(directory, "agent.pub");

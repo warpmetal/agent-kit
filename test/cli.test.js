@@ -131,7 +131,7 @@ function jsonResponse(status, body, headers = {}) {
   });
 }
 
-test("help explains the nested private procfs lifecycle and use cases", async () => {
+test("help exposes no nested private procfs option or guidance", async () => {
   const stdout = capture();
   const stderr = capture();
   const exitCode = await main(["--help"], {
@@ -142,14 +142,7 @@ test("help explains the nested private procfs lifecycle and use cases", async ()
 
   assert.equal(exitCode, 0);
   assert.equal(stderr.value(), "");
-  assert.match(stdout.value(), /Nested private procfs \(CLI 0\.8\.7\+, Runtime 0\.1\.25\+\)/);
-  assert.match(stdout.value(), /preserve\s+Default/);
-  assert.match(stdout.value(), /Planning, coding, and QA are\s+common examples/);
-  assert.match(
-    stdout.value(),
-    /GitHub access, an AI CLI, and subagent delegation alone do not\s+require it/,
-  );
-  assert.match(stdout.value(), /host-scoped, not per-sandbox/);
+  assert.doesNotMatch(stdout.value(), /nested[- ]private[- ]procfs/i);
   assert.match(stdout.value(), /SSH host trust \(CLI 0\.8\.8\+\)/);
   assert.match(stdout.value(), /before requesting a Runtime bootstrap/);
   assert.match(stdout.value(), /changed key is never accepted or\s+overwritten/);
@@ -182,10 +175,12 @@ test("JSON errors include stable CliError codes as structured data", async () =>
   }
 });
 
-test("runtime install recognizes and validates the nested private procfs option", async () => {
+test("runtime install rejects the removed nested option before external work", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-procfs-test-"));
   const stdout = capture();
   const stderr = capture();
+  let fetchCalls = 0;
+  let spawnCalls = 0;
   try {
     const exitCode = await main(
       [
@@ -205,19 +200,33 @@ test("runtime install recognizes and validates the nested private procfs option"
         join(directory, "state"),
         "--json",
       ],
-      { stdout: stdout.stream, stderr: stderr.stream, env: {} },
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          throw new Error("unexpected fetch");
+        },
+        spawnImpl: () => {
+          spawnCalls += 1;
+          throw new Error("unexpected spawn");
+        },
+      },
     );
 
     assert.equal(exitCode, 2);
+    assert.equal(stdout.value(), "");
+    assert.equal(fetchCalls, 0);
+    assert.equal(spawnCalls, 0);
     const error = JSON.parse(stderr.value());
-    assert.match(error.error.message, /must be preserve, enable, or disable/);
-    assert.doesNotMatch(error.error.message, /Unsupported option/);
+    assert.match(error.error.message, /Unknown option: --nested-private-procfs/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test("runtime install forwards a positive nested private procfs option through the CLI", async (context) => {
+test("runtime install returns and forwards no nested action", async (context) => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-cli-procfs-positive-"));
   const stdout = capture();
   const stderr = capture();
@@ -368,8 +377,6 @@ test("runtime install forwards a positive nested private procfs option through t
         "root",
         "--confirm",
         "INSTALL",
-        "--nested-private-procfs",
-        "enable",
         "--base-url",
         "https://api.warpmetal.test",
         "--state-dir",
@@ -387,7 +394,7 @@ test("runtime install forwards a positive nested private procfs option through t
 
     assert.equal(exitCode, 0, stderr.value());
     const output = JSON.parse(stdout.value());
-    assert.equal(output.nestedPrivateProcfsAction, "enable");
+    assert.equal(Object.hasOwn(output, "nestedPrivateProcfsAction"), false);
     assert.equal(output.hostKeyTrust.state, "trusted_first_use");
     assert.ok(
       timeline.indexOf("ssh:StrictHostKeyChecking=accept-new") <
@@ -407,8 +414,7 @@ test("runtime install forwards a positive nested private procfs option through t
         call.args.some((argument) => argument.endsWith("/install.sh")),
     );
     assert.ok(install);
-    const option = install.args.indexOf("--nested-private-procfs");
-    assert.equal(install.args[option + 1], "enable");
+    assert.equal(install.args.includes("--nested-private-procfs"), false);
     for (const call of calls.filter(({ command }) =>
       ["ssh", "scp"].includes(command),
     )) {
