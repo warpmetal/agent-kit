@@ -37,6 +37,7 @@ import {
   signSshChallenge,
   sshFingerprint,
 } from "./ssh.js";
+import { installSshAlias, removeSshAlias } from "./ssh-alias.js";
 import { resolveStateDirectory, StateStore } from "./state.js";
 import { VERSION } from "./version.js";
 
@@ -122,6 +123,9 @@ Usage:
   warpmetal sandbox access grant|list|get|revoke ...
   warpmetal sandbox access refresh --server <serverId> --sandbox <sandboxId>
     --grant <grantId> --connection-file <path> --confirm REFRESH [--wait]
+  warpmetal sandbox access install-ssh --connection-file <profile> --identity <sandbox-private-key-path>
+    --alias <alias> [--confirm REFRESH]
+  warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE
   warpmetal sandbox connect --connection-file <path> --identity <sandbox-key> [-- <command>]
   warpmetal state list
   warpmetal agent install --target <codex|claude|all> [--scope <user|project>] [--force]
@@ -142,6 +146,36 @@ SSH host trust (CLI 0.8.8+):
   epoch; failed or ambiguous reloads do not. First-use trust cannot detect an
   active attacker on the first connection. Provider-console pre-enrollment is
   the optional higher-assurance alternative.
+
+Sandbox SSH aliases:
+  Refresh the authenticated connection profile before refreshing an existing
+  alias:
+    warpmetal sandbox access refresh --server <serverId> --sandbox <sandboxId> --grant <grantId> --connection-file <profile> --confirm REFRESH
+    warpmetal sandbox access install-ssh --connection-file <profile> --identity <sandbox-private-key-path> --alias <alias> --confirm REFRESH
+  Remove only the managed alias and host pins explicitly:
+    warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE
+
+  Use a separate keypair and grant for each sandbox. Tool and provider
+  authentication stays inside the sandbox and uses sandbox-owned credentials.
+  After installation, the concrete alias supports interactive and one-shot use:
+    ssh <alias>
+    ssh <alias> codex
+    ssh <alias> codex exec "<prompt>"
+    ssh <alias> claude
+    ssh <alias> claude -p "<prompt>"
+    ssh <alias> agent
+    ssh <alias> agent -p "<prompt>"
+
+  Codex Desktop discovers the concrete alias through ~/.ssh/config and opens
+  the sandbox login shell, so Codex must be available on the login-shell PATH.
+  Sandbox aliases never use or expose the VPS owner management key, cannot open
+  a host shell, and do not relax isolation: ClearAllForwardings yes keeps all
+  forwarding disabled.
+
+  Compatibility references:
+    https://developers.openai.com/codex/remote-connections
+    https://cursor.com/docs/cli/overview
+    https://cursor.com/docs/cli/headless
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
@@ -2701,6 +2735,38 @@ async function handleSandboxConnect(options, passthrough, context) {
   );
 }
 
+async function handleAccessInstallSsh(options, context) {
+  const result = await installSshAlias({
+    alias: stringOption(options, "alias", { required: true }),
+    connectionFile: stringOption(options, "connection-file", { required: true }),
+    identity: stringOption(options, "identity", { required: true }),
+    homeDirectory: context.env.HOME,
+    confirm: stringOption(options, "confirm"),
+  });
+  emit(
+    context.stdout,
+    result,
+    context.json,
+    `SSH alias ${result.alias}: ${result.operation}.`,
+  );
+  return 0;
+}
+
+async function handleAccessRemoveSsh(options, context) {
+  const result = await removeSshAlias({
+    alias: stringOption(options, "alias", { required: true }),
+    homeDirectory: context.env.HOME,
+    confirm: stringOption(options, "confirm", { required: true }),
+  });
+  emit(
+    context.stdout,
+    result,
+    context.json,
+    `SSH alias ${result.alias}: ${result.operation}.`,
+  );
+  return 0;
+}
+
 async function dispatch(positionals, options, passthrough, context) {
   const command = positionals.join(" ");
   if (passthrough.length > 0 && command !== "sandbox connect") {
@@ -2746,6 +2812,21 @@ async function dispatch(positionals, options, passthrough, context) {
         .join("\n"),
     );
     return 0;
+  }
+  if (command === "sandbox access install-ssh") {
+    rejectUnknownOptions(options, [
+      "json",
+      "help",
+      "connection-file",
+      "identity",
+      "alias",
+      "confirm",
+    ]);
+    return handleAccessInstallSsh(options, context);
+  }
+  if (command === "sandbox access remove-ssh") {
+    rejectUnknownOptions(options, ["json", "help", "alias", "confirm"]);
+    return handleAccessRemoveSsh(options, context);
   }
 
   const baseUrl = stringOption(options, "base-url");

@@ -307,6 +307,38 @@ pinned host keys, then connect only through `warpmetal sandbox connect`.
 Never give an agent the owner host key, owner token, SSH-derived management
 token, runtime bootstrap, or node token.
 
+CLI 0.8.10 or newer can turn the already-applied token-free profile into a
+standard concrete OpenSSH alias. Read [references/runtime.md](references/runtime.md)
+before installing one. Use a separate keypair and grant for each sandbox, and
+pass the sandbox identity—not the VPS owner management key:
+
+```sh
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> --json
+ssh <alias>
+```
+
+The local alias preserves the forced gateway: it cannot open a host shell and
+does not relax forwarding denial. Provider authentication and credentials stay
+inside the sandbox. After an authenticated profile refresh, update the alias
+only with the explicit second confirmation:
+
+```sh
+warpmetal sandbox access refresh \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> \
+  --connection-file <profile-path> --confirm REFRESH --wait --json
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> --confirm REFRESH --json
+```
+
+Remove it only with
+`warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE --json`.
+Do not edit the generated fragment or host pin manually.
+
 If the installed CLI lacks a required runtime command, stop, explain the
 version limitation, and ask before upgrading the official npm package. Do not
 reconstruct runtime changes with raw HTTP, ad hoc SSH, Podman, Docker, or host

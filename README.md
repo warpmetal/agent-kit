@@ -367,6 +367,73 @@ warpmetal sandbox access keygen \
   --json
 ```
 
+### Install a standard sandbox SSH alias
+
+Use a separate keypair and access grant for each sandbox. After the grant is
+`applied`, install its token-free profile as a concrete OpenSSH alias:
+
+```sh
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> \
+  --json
+
+ssh <alias>
+ssh <alias> codex
+ssh <alias> codex exec '<task>'
+ssh <alias> claude
+ssh <alias> claude -p '<task>'
+ssh <alias> agent
+ssh <alias> agent -p '<task>'
+```
+
+Install and authenticate Codex, Claude Code, or Cursor CLI inside the
+sandbox first. Provider credentials are sandbox-owned and remain in its
+persistent home; WarpMetal does not install these tools, perform their login,
+or receive their credentials.
+
+The alias is local-only. It prepends a managed include to `~/.ssh/config` and
+uses the profile's pinned host key plus the sandbox identity. It never uses or
+exposes the VPS owner management key. The server-side forced gateway maps that
+identity to only its assigned sandbox, cannot open a host shell, and retains
+`ClearAllForwardings yes` together with agent and X11 forwarding denial.
+
+An exact reinstall is safe and unchanged. If an authenticated access refresh
+produces a new profile, refresh the profile first and then explicitly replace
+the local alias:
+
+```sh
+warpmetal sandbox access refresh \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> \
+  --connection-file <profile-path> --confirm REFRESH --wait --json
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> --confirm REFRESH --json
+```
+
+Remove only that managed alias and pin with explicit confirmation; unrelated
+SSH configuration is preserved:
+
+```sh
+warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE --json
+```
+
+[Codex Desktop's remote-connections contract](https://developers.openai.com/codex/remote-connections)
+discovers concrete aliases from `~/.ssh/config`, requires `ssh <alias>` to
+work, and starts the remote app server through the login shell. Install Codex
+inside the sandbox and ensure Codex is on the login-shell `PATH` before choosing
+the alias in Codex Desktop.
+
+The tested Cursor Remote SSH path is incompatible with this boundary because
+it requests dynamic forwarding, which WarpMetal deliberately denies. Do not
+weaken sandbox forwarding controls to make the IDE connect. Use the supported
+[Cursor CLI](https://cursor.com/docs/cli/overview) interactively with
+`ssh <alias> agent` or in
+[headless mode](https://cursor.com/docs/cli/headless) with
+`ssh <alias> agent -p '<task>'` instead.
+
 On the first install in a server trust epoch, JSON output includes
 `hostKeyTrust.state: "trusted_first_use"` and the safe Ed25519 fingerprint.
 Later installs report `"matched"`. First-use trust protects continuity after

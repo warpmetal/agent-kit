@@ -227,6 +227,93 @@ The sandbox record is retained, but its old workspace is not; reconciliation
 creates a new empty workspace. Never bypass a host-key mismatch or reuse the
 pre-reload profile.
 
+### Install a concrete OpenSSH alias
+
+CLI 0.8.10 or newer can install the reviewed profile as a standard local alias
+without another API request:
+
+```sh
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> \
+  --json
+```
+
+Use a separate keypair and grant for each sandbox. The identity must be the
+private half of that sandbox grant, never the VPS owner management key. The
+command validates the closed token-free profile and its fingerprints, then
+prepends a managed include to `~/.ssh/config`. It writes a private alias
+fragment and dedicated pinned known-hosts file. Exact reinstall is idempotent.
+
+If an authenticated access refresh changes the profile, endpoint, host pin, or
+identity, run the server-backed profile refresh first and then explicitly
+replace the local alias:
+
+```sh
+warpmetal sandbox access refresh \
+  --server <serverId> \
+  --sandbox <sandboxId> \
+  --grant <grantId> \
+  --connection-file <profile-path> \
+  --confirm REFRESH \
+  --wait \
+  --json
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> \
+  --identity <sandbox-private-key-path> \
+  --alias <alias> \
+  --confirm REFRESH \
+  --json
+```
+
+Never replace a pin merely because an SSH connection reports a mismatch. The
+alias installer consumes only the already-refreshed API profile and does not
+scan or trust a network key. Remove one alias without changing unrelated SSH
+configuration:
+
+```sh
+warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE --json
+```
+
+The generated host block pins the exact host keys, selects only the sandbox
+identity, disables password and keyboard-interactive authentication, retains
+`ClearAllForwardings yes`, disables agent/X11 forwarding and local commands,
+and contains neither `RemoteCommand` nor `RequestTTY`. The existing server-side
+forced gateway still maps the key to exactly one sandbox. The alias cannot open
+a host shell and never uses or exposes the owner management key.
+
+After installing and authenticating each provider tool inside the sandbox, use
+the alias for interactive or one-shot work:
+
+```sh
+ssh <alias>
+ssh <alias> codex
+ssh <alias> codex exec '<task>'
+ssh <alias> claude
+ssh <alias> claude -p '<task>'
+ssh <alias> agent
+ssh <alias> agent -p '<task>'
+```
+
+Provider authentication and credentials are sandbox-owned and persist only in
+the sandbox home. WarpMetal does not install, authenticate, configure, or
+receive credentials for Codex, Claude Code, or Cursor CLI.
+
+[Codex Desktop](https://developers.openai.com/codex/remote-connections)
+discovers a concrete alias through `~/.ssh/config`, requires ordinary
+`ssh <alias>` connectivity, and launches the remote app server through the
+login shell. Codex must therefore be installed inside the sandbox and on the
+login-shell `PATH` before selecting the alias in Codex Desktop.
+
+The tested Cursor Remote SSH path requests dynamic forwarding, which the
+Runtime correctly denies, so Cursor IDE remote access is not supported by this
+restricted alias. Do not relax forwarding controls. Use the official
+[Cursor CLI](https://cursor.com/docs/cli/overview) interactively with
+`ssh <alias> agent` or in
+[headless mode](https://cursor.com/docs/cli/headless) with
+`ssh <alias> agent -p '<task>'` instead.
+
 Connect without an owner management credential:
 
 ```sh
