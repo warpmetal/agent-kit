@@ -288,11 +288,11 @@ the alias for interactive or one-shot work:
 
 ```sh
 ssh <alias>
-ssh <alias> codex
+ssh -t <alias> codex
 ssh <alias> codex exec '<task>'
-ssh <alias> claude
+ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
-ssh <alias> agent
+ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
 ```
 
@@ -300,7 +300,7 @@ Provider authentication and credentials are sandbox-owned and persist only in
 the sandbox home. WarpMetal does not install, authenticate, configure, or
 receive credentials for Codex, Claude Code, or Cursor CLI.
 
-[Codex Desktop](https://developers.openai.com/codex/remote-connections)
+[Codex Desktop](https://learn.chatgpt.com/docs/remote-connections)
 discovers a concrete alias through `~/.ssh/config`, requires ordinary
 `ssh <alias>` connectivity, and launches the remote app server through the
 login shell. Codex must therefore be installed inside the sandbox and on the
@@ -310,7 +310,7 @@ The tested Cursor Remote SSH path requests dynamic forwarding, which the
 Runtime correctly denies, so Cursor IDE remote access is not supported by this
 restricted alias. Do not relax forwarding controls. Use the official
 [Cursor CLI](https://cursor.com/docs/cli/overview) interactively with
-`ssh <alias> agent` or in
+`ssh -t <alias> agent` or in
 [headless mode](https://cursor.com/docs/cli/headless) with
 `ssh <alias> agent -p '<task>'` instead.
 

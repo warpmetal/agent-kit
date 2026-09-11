@@ -46,11 +46,11 @@ function missingAliasDocumentation(value) {
       /warpmetal sandbox access remove-ssh .*--alias <alias> .*--confirm REMOVE/i,
     ],
     ["interactive ssh alias", /ssh <alias>(?:\s|$)/i],
-    ["interactive Codex", /ssh <alias> ["']?codex(?:["']?\s|$)/i],
+    ["interactive Codex", /ssh -t <alias> ["']?codex(?:["']?\s|$)/i],
     ["one-shot Codex", /ssh <alias> ["']?codex exec(?:["']?\s|$)/i],
-    ["interactive Claude Code", /ssh <alias> ["']?claude(?:["']?\s|$)/i],
+    ["interactive Claude Code", /ssh -t <alias> ["']?claude(?:["']?\s|$)/i],
     ["one-shot Claude Code", /ssh <alias> ["']?claude -p(?:["']?\s|$)/i],
-    ["interactive Cursor CLI", /ssh <alias> ["']?agent(?:["']?\s|$)/i],
+    ["interactive Cursor CLI", /ssh -t <alias> ["']?agent(?:["']?\s|$)/i],
     ["one-shot Cursor CLI", /ssh <alias> ["']?agent -p(?:["']?\s|$)/i],
     [
       "sandbox-owned provider authentication",
@@ -61,6 +61,7 @@ function missingAliasDocumentation(value) {
       /(?:separate|distinct)[^.]{0,100}(?:key|keypair)[^.]{0,100}grant[^.]{0,100}(?:each|every|per) sandbox|(?:each|every) sandbox[^.]{0,100}(?:separate|distinct)[^.]{0,100}(?:key|keypair)[^.]{0,100}grant/i,
     ],
     ["Codex Desktop", /Codex Desktop/i],
+    ["official Codex Desktop remote-connections reference", /https:\/\/learn\.chatgpt\.com\/docs\/remote-connections/i],
     ["Codex Desktop concrete alias", /concrete [^.]{0,60}alias/i],
     ["Codex Desktop OpenSSH config discovery", /~\/\.ssh\/config/i],
     ["Codex Desktop remote login shell", /login shell/i],
@@ -99,7 +100,7 @@ function assertAliasDocumentation(name, value) {
 function assertOfficialCompatibilitySources(name, value) {
   assert.match(
     value,
-    /https:\/\/developers\.openai\.com\/codex\/remote-connections/,
+    /https:\/\/learn\.chatgpt\.com\/docs\/remote-connections/,
     `${name} must link the authoritative Codex remote-connections contract`,
   );
   assert.match(

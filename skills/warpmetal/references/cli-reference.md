@@ -294,15 +294,15 @@ interactive and one-shot entry points are:
 
 ```sh
 ssh <alias>
-ssh <alias> codex
+ssh -t <alias> codex
 ssh <alias> codex exec '<task>'
-ssh <alias> claude
+ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
-ssh <alias> agent
+ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
 ```
 
-[Codex Desktop](https://developers.openai.com/codex/remote-connections) reads
+[Codex Desktop](https://learn.chatgpt.com/docs/remote-connections) reads
 the concrete alias from `~/.ssh/config` and starts Codex through the sandbox
 login shell, so Codex must be installed and on that login-shell `PATH`. The
 tested Cursor Remote SSH route requests prohibited dynamic forwarding and is

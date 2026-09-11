@@ -380,11 +380,11 @@ warpmetal sandbox access install-ssh \
   --json
 
 ssh <alias>
-ssh <alias> codex
+ssh -t <alias> codex
 ssh <alias> codex exec '<task>'
-ssh <alias> claude
+ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
-ssh <alias> agent
+ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
 ```
 
@@ -420,7 +420,7 @@ SSH configuration is preserved:
 warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE --json
 ```
 
-[Codex Desktop's remote-connections contract](https://developers.openai.com/codex/remote-connections)
+[Codex Desktop's remote-connections contract](https://learn.chatgpt.com/docs/remote-connections)
 discovers concrete aliases from `~/.ssh/config`, requires `ssh <alias>` to
 work, and starts the remote app server through the login shell. Install Codex
 inside the sandbox and ensure Codex is on the login-shell `PATH` before choosing
@@ -430,7 +430,7 @@ The tested Cursor Remote SSH path is incompatible with this boundary because
 it requests dynamic forwarding, which WarpMetal deliberately denies. Do not
 weaken sandbox forwarding controls to make the IDE connect. Use the supported
 [Cursor CLI](https://cursor.com/docs/cli/overview) interactively with
-`ssh <alias> agent` or in
+`ssh -t <alias> agent` or in
 [headless mode](https://cursor.com/docs/cli/headless) with
 `ssh <alias> agent -p '<task>'` instead.
 

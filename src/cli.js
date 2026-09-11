@@ -159,11 +159,11 @@ Sandbox SSH aliases:
   authentication stays inside the sandbox and uses sandbox-owned credentials.
   After installation, the concrete alias supports interactive and one-shot use:
     ssh <alias>
-    ssh <alias> codex
+    ssh -t <alias> codex
     ssh <alias> codex exec "<prompt>"
-    ssh <alias> claude
+    ssh -t <alias> claude
     ssh <alias> claude -p "<prompt>"
-    ssh <alias> agent
+    ssh -t <alias> agent
     ssh <alias> agent -p "<prompt>"
 
   Codex Desktop discovers the concrete alias through ~/.ssh/config and opens
@@ -173,7 +173,7 @@ Sandbox SSH aliases:
   forwarding disabled.
 
   Compatibility references:
-    https://developers.openai.com/codex/remote-connections
+    https://learn.chatgpt.com/docs/remote-connections
     https://cursor.com/docs/cli/overview
     https://cursor.com/docs/cli/headless
 
