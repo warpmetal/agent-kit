@@ -322,8 +322,10 @@ ssh <alias>
 
 The local alias preserves the forced gateway: it cannot open a host shell and
 does not relax forwarding denial. Provider authentication and credentials stay
-inside the sandbox. After an authenticated profile refresh, update the alias
-only with the explicit second confirmation:
+inside the sandbox. Install and authenticate Codex, Claude Code, Cursor CLI, or
+Gemini CLI inside the sandbox; use the entry points and compatibility guidance
+in [references/runtime.md](references/runtime.md). After an authenticated
+profile refresh, update the alias only with the explicit second confirmation:
 
 ```sh
 warpmetal sandbox access refresh \
