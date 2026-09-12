@@ -261,6 +261,10 @@ warpmetal sandbox access get \
 warpmetal sandbox access refresh \
   --server <serverId> --sandbox <sandboxId> --grant <grantId> \
   --connection-file <profile-path> --confirm REFRESH [--wait] --json
+warpmetal sandbox access install-ssh \
+  --connection-file <profile-path> --identity <sandbox-private-key-path> \
+  --alias <alias> [--confirm REFRESH] --json
+warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE --json
 warpmetal sandbox access revoke \
   --server <serverId> --sandbox <sandboxId> --grant <grantId> \
   --confirm REVOKE [--wait] --json
@@ -274,6 +278,37 @@ creation requires `--wait`.
 `sandbox access refresh` atomically replaces a stale token-free profile with
 the currently applied grant and API-reported pinned host keys; use it after an
 OS reload and supervisor reinstall.
+
+`sandbox access install-ssh` is local-only and requires CLI 0.8.10 or newer.
+It turns the reviewed profile and sandbox-private identity into a concrete
+alias in `~/.ssh/config`. Exact replay is unchanged. If the profile, endpoint,
+pin, or identity changes, first run the authenticated `sandbox access refresh`
+command above, then repeat `sandbox access install-ssh ... --confirm REFRESH`.
+Removal requires exact `--confirm REMOVE` and preserves unrelated SSH config.
+
+Use a separate keypair and grant for each sandbox. The alias never uses or
+exposes the VPS owner management key; the forced gateway cannot open a host
+shell, and forwarding remains disabled with `ClearAllForwardings yes`.
+Authentication for user-installed tools happens inside the sandbox. Common
+interactive and one-shot entry points are:
+
+```sh
+ssh <alias>
+ssh -t <alias> codex
+ssh <alias> codex exec '<task>'
+ssh -t <alias> claude
+ssh <alias> claude -p '<task>'
+ssh -t <alias> agent
+ssh <alias> agent -p '<task>'
+```
+
+[Codex Desktop](https://learn.chatgpt.com/docs/remote-connections) reads
+the concrete alias from `~/.ssh/config` and starts Codex through the sandbox
+login shell, so Codex must be installed and on that login-shell `PATH`. The
+tested Cursor Remote SSH route requests prohibited dynamic forwarding and is
+not compatible with this boundary. Keep forwarding denied and use the
+[Cursor CLI](https://cursor.com/docs/cli/overview) interactive or
+[headless](https://cursor.com/docs/cli/headless) commands shown above.
 
 ## Skill installation and state
 
