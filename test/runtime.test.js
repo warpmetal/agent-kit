@@ -272,7 +272,7 @@ test("temporary sandbox creation requires exact confirmation before API access",
   assert.match(stderr.value(), /confirm TEMPORARY/i);
 });
 
-test("guarded reload acknowledges runtime loss and returns recovery contract", async () => {
+test("guarded reload preserves reset acknowledgement and records automatic Runtime setup", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-reload-"));
   const requests = [];
   const fetchImpl = async (url, request = {}) => {
@@ -299,7 +299,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
           workspaceDataLost: true,
           desiredSandboxesRecreatedEmpty: true,
           connectionProfilesNeedRefresh: true,
-          nextAction: "install_supervisor",
+          nextAction: "wait_for_runtime",
         },
       });
     }
@@ -319,7 +319,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
               workspaceDataLost: true,
               desiredSandboxesRecreatedEmpty: true,
               connectionProfilesNeedRefresh: true,
-              nextAction: "install_supervisor",
+              nextAction: "wait_for_runtime",
             },
           },
         },
@@ -370,7 +370,7 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
     const output = JSON.parse(stdout.value());
     assert.equal(
       output.operation.result.reloadImpact.nextAction,
-      "install_supervisor",
+      "wait_for_runtime",
     );
     assert.equal(
       await new StateStore(join(directory, "state")).hostTrustEpoch(
@@ -378,6 +378,101 @@ test("guarded reload acknowledges runtime loss and returns recovery contract", a
       ),
       "reload-op_reload12345",
     );
+    const state = JSON.parse(
+      await readFile(join(directory, "state", "state.json"), "utf8"),
+    );
+    assert.equal(
+      state.runtimes.srv_runtime12345.state,
+      "pending_install",
+      "automatic reload must not fabricate a local needs_reinstall state",
+    );
+    assert.equal(
+      requests.some(({ path }) => path.includes("/agent-runtime/install")),
+      false,
+      "successful automatic reload must not invoke manual Runtime installation",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("successful automatic reload tells the owner to wait and refresh sandbox profiles", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-reload-guidance-"));
+  const fetchImpl = async (url, request = {}) => {
+    const path = new URL(url).pathname;
+    if (request.method === "GET" && path === "/servers/srv_runtime12345") {
+      return jsonResponse(200, {
+        task: {
+          serverId: "srv_runtime12345",
+          hostname: "runtime-reload",
+          state: "ready",
+          agentRuntime: { state: "ready", desiredSandboxCount: 1 },
+        },
+      });
+    }
+    if (request.method === "POST" && path.endsWith("/reload")) {
+      return jsonResponse(202, {
+        status: "accepted",
+        operation: { id: "op_reload67890", kind: "reload", state: "queued" },
+        pollPath: "/operations/op_reload67890",
+      });
+    }
+    if (request.method === "GET" && path === "/operations/op_reload67890") {
+      return jsonResponse(200, {
+        operation: {
+          id: "op_reload67890",
+          kind: "reload",
+          state: "succeeded",
+          result: {
+            providerReloadAccepted: true,
+            targetOperatingSystem: "Ubuntu 24.04 (VPS)",
+            reloadImpact: {
+              diskDataLost: true,
+              ownerKnownHostsNeedRefresh: true,
+              agentRuntimeAffected: true,
+              workspaceDataLost: true,
+              desiredSandboxesRecreatedEmpty: true,
+              connectionProfilesNeedRefresh: true,
+              nextAction: "wait_for_runtime",
+            },
+          },
+        },
+      });
+    }
+    return jsonResponse(404, { error: { message: "not found" } });
+  };
+  const stdout = capture();
+  const stderr = capture();
+  try {
+    const code = await main(
+      [
+        "server",
+        "reload",
+        "--server",
+        "srv_runtime12345",
+        "--confirm",
+        "ERASE",
+        "--power-off-first",
+        "--acknowledge-agent-runtime-reset",
+        "--wait",
+        "--base-url",
+        "http://localhost",
+        "--state-dir",
+        join(directory, "state"),
+      ],
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { WARPMETAL_OWNER_TOKEN: "owner-reload-secret" },
+        fetchImpl,
+      },
+    );
+    assert.equal(code, 0, stderr.value());
+    assert.match(
+      stdout.value(),
+      /wait for Agent Runtime[\s\S]*refresh[\s\S]*sandbox[\s\S]*profiles?/i,
+    );
+    assert.doesNotMatch(stdout.value(), /runtime install|reinstall/i);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

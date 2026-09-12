@@ -147,6 +147,14 @@ SSH host trust (CLI 0.8.8+):
   active attacker on the first connection. Provider-console pre-enrollment is
   the optional higher-assurance alternative.
 
+Runtime-enabled reloads:
+  Reload still requires --acknowledge-agent-runtime-reset because every
+  sandbox workspace is erased. After a successful reload, Runtime setup is
+  automatic: use warpmetal runtime get --server <serverId> --wait --json,
+  then refresh every sandbox connection profile before reconnecting. The
+  successful operation also records a new owner SSH trust epoch; verify the
+  replacement host key before owner SSH.
+
 Sandbox SSH aliases:
   Refresh the authenticated connection profile before refreshing an existing
   alias:
@@ -1995,7 +2003,7 @@ async function applyReloadResult(
   await store.invalidateServerAccess(serverId);
   if (operation.result?.reloadImpact?.agentRuntimeAffected) {
     await store.saveRuntime(serverId, {
-      state: "needs_reinstall",
+      state: "pending_install",
       desiredRevision: undefined,
       appliedRevision: 0,
       lastSeenAt: null,
@@ -2103,8 +2111,8 @@ async function handleServerReload(client, store, options, context) {
       (operation?.state === "succeeded" &&
       operation.result?.reloadImpact?.ownerKnownHostsNeedRefresh
         ? operation.result?.reloadImpact?.agentRuntimeAffected
-          ? " The next Runtime install will establish the operation-bound owner SSH trust epoch, then reinstall Agent Runtime and refresh every sandbox connection profile."
-          : " The next Runtime install will establish the operation-bound owner SSH trust epoch before reconnecting."
+          ? " Agent Runtime setup is automatic. Wait for Agent Runtime to become ready, then refresh every sandbox connection profile. Verify the replacement host key before owner SSH."
+          : " Verify the replacement host key before owner SSH; the successful reload recorded a new operation-bound trust epoch."
         : operation?.state === "succeeded"
           ? " WarpMetal did not report a host-key refresh; the existing managed pin remains required."
           : ""),

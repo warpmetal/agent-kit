@@ -208,11 +208,12 @@ The token-free profile is written only after the grant is `applied` and the
 API supplies verified VPS host keys. Do not print or open that profile in an
 agent conversation.
 
-After a destructive OS reload, reinstall the supervisor and wait for the
-retained active grant to become `applied`, then replace its stale pinned
-profile:
+After a successful destructive OS reload, the signed Runtime bootstrap runs
+automatically. Wait for Runtime readiness and for the retained active grant to
+become `applied`, then replace its stale pinned profile:
 
 ```sh
+warpmetal runtime get --server <serverId> --wait --json
 warpmetal sandbox access refresh \
   --server <serverId> \
   --sandbox <sandboxId> \
@@ -225,7 +226,8 @@ warpmetal sandbox access refresh \
 
 The sandbox record is retained, but its old workspace is not; reconciliation
 creates a new empty workspace. Never bypass a host-key mismatch or reuse the
-pre-reload profile.
+pre-reload profile. Use manual Runtime installation only as an explicitly
+approved repair when the backend reports that automatic setup failed.
 
 ### Install a concrete OpenSSH alias
 

@@ -201,7 +201,18 @@ Reload requires the recovery owner credential rather than a short-lived
 SSH-derived token. `--power-off-first` authorizes shutdown and powered-off
 verification inside the same operation. When Agent Runtime is enabled,
 `--acknowledge-agent-runtime-reset` is required because workspaces are erased,
-the supervisor must be reinstalled, and connection profiles must be refreshed.
+the Runtime identity is replaced, empty sandboxes are reconciled automatically,
+and connection profiles must be refreshed. After a successful reload, wait for
+automatic setup before refreshing profiles:
+
+```sh
+warpmetal runtime get --server <serverId> --wait --json
+```
+
+The successful operation records a new owner SSH trust epoch. Verify the
+replacement host key before owner SSH. Manual Runtime installation remains an
+explicit repair path when automatic setup fails; it is not part of a
+successful reload.
 
 Use `--token-file` only for recovery when local state is unavailable. Prefer
 `WARPMETAL_OWNER_TOKEN` or `WARPMETAL_ACCESS_TOKEN` for a single command over a
@@ -277,7 +288,7 @@ returns the OpenSSH or remote exit status. `--connection-file` on grant
 creation requires `--wait`.
 `sandbox access refresh` atomically replaces a stale token-free profile with
 the currently applied grant and API-reported pinned host keys; use it after an
-OS reload and supervisor reinstall.
+OS reload once automatic Runtime reconciliation is ready.
 
 `sandbox access install-ssh` is local-only and requires CLI 0.8.10 or newer.
 It turns the reviewed profile and sandbox-private identity into a concrete
