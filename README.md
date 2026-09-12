@@ -317,9 +317,10 @@ compatible external signer.
   Wallet key management and signing remain outside this package.
 - Destructive or state-changing commands require explicit confirmations and
   generate idempotency keys by default.
-- Runtime bootstrap credentials remain memory-only and are requested only after
-  the first host key has been pinned and strictly reverified. Signed supervisor
-  bundles are checksum- and signature-verified before OpenSSH uploads them.
+- Runtime bootstrap credentials remain memory-only. Manual installation asks
+  for one only after the first host key has been pinned and strictly reverified;
+  automatic reload bootstrap is rendered directly into provider-bound
+  cloud-init. Signed supervisor bundles are checksum- and signature-verified.
 - Each agent gets a distinct SSH key forced into exactly one sandbox. Token-free
   connection profiles pin the VPS host key and contain no owner credential or
   private-key material.
@@ -332,11 +333,30 @@ compatible external signer.
   external workspace, lifetime, and start time. The wait completes only when
   the observed digest and generation both match the accepted target.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
-  second acknowledgment, after which the CLI guides supervisor reinstall and
-  pinned connection-profile refresh. Only a locally recorded reload operation
-  that succeeds and reports an owner-host-key refresh opens one new managed
-  trust epoch; failed or ambiguous reloads retain the old pin and never permit
-  replacement. Erased workspaces are never described as recoverable.
+  second acknowledgment because all sandbox workspaces are erased. WarpMetal
+  places the approved signed Runtime bootstrap in reload cloud-init
+  automatically; wait for Runtime readiness, then refresh pinned sandbox
+  connection profiles. Only a locally recorded reload operation that succeeds
+  and reports an owner-host-key refresh opens one new managed trust epoch;
+  failed or ambiguous reloads retain the old pin and never permit replacement.
+  Erased workspaces are never described as recoverable.
+
+For a Runtime-enabled reload, no separate installation command is part of the
+successful path:
+
+```sh
+warpmetal server reload \
+  --server <serverId> --confirm ERASE --power-off-first \
+  --acknowledge-agent-runtime-reset --wait --json
+warpmetal runtime get --server <serverId> --wait --json
+warpmetal sandbox access refresh \
+  --server <serverId> --sandbox <sandboxId> --grant <grantId> \
+  --connection-file <profile-path> --confirm REFRESH --wait --json
+```
+
+The successful reload records a new operation-bound owner SSH trust epoch.
+Verify the replacement host key before using owner SSH; sandbox access remains
+strictly pinned through each refreshed connection profile.
 
 ## Agent Runtime example
 

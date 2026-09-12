@@ -95,9 +95,10 @@ A reload requires both `confirm: "ERASE"` and `powerOffFirst: true`. Treat
 server, wait until it is powered off, and then erase and reinstall it inside
 one lifecycle operation. When Agent Runtime is enabled, also require
 `acknowledgeAgentRuntimeReset`: all sandbox workspaces are permanently erased,
-the supervisor identity is revoked, desired sandboxes are recreated empty
-after reinstall, and all pinned profiles require refresh. Use only the guarded
-CLI command and stop on `manual_review`. Reload invalidates the prior
+the supervisor identity is revoked, signed Runtime setup runs automatically,
+desired sandboxes are recreated empty, and all pinned profiles require refresh.
+Use only the guarded CLI command, wait for Runtime readiness, and stop on
+`manual_review`. Reload invalidates the prior
 owner-facing SSH host-key trust decision; the provider may rotate or preserve
 the key. CLI 0.8.8 opens one new managed trust epoch only after the exact local
 reload operation succeeds and reports that refresh is required. The first
