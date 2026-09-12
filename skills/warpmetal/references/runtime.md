@@ -294,11 +294,14 @@ ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
 ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
+ssh -t <alias> gemini
+ssh <alias> gemini -p '<task>'
 ```
 
-Provider authentication and credentials are sandbox-owned and persist only in
-the sandbox home. WarpMetal does not install, authenticate, configure, or
-receive credentials for Codex, Claude Code, or Cursor CLI.
+Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
+the sandbox first. Provider authentication and credentials are sandbox-owned
+and persist only in the sandbox home. WarpMetal does not install, authenticate,
+configure, or receive credentials for those tools.
 
 [Codex Desktop](https://learn.chatgpt.com/docs/remote-connections)
 discovers a concrete alias through `~/.ssh/config`, requires ordinary
@@ -313,6 +316,14 @@ restricted alias. Do not relax forwarding controls. Use the official
 `ssh -t <alias> agent` or in
 [headless mode](https://cursor.com/docs/cli/headless) with
 `ssh <alias> agent -p '<task>'` instead.
+
+Follow Gemini CLI's official [installation guide](https://geminicli.com/docs/get-started/installation/),
+then use `ssh -t <alias> gemini` interactively or its documented
+[headless mode](https://geminicli.com/docs/cli/headless/) with
+`ssh <alias> gemini -p '<task>'`. Gemini's optional Docker or Podman sandbox is
+normally unavailable inside the WarpMetal sandbox because no host
+container-engine socket is exposed; run Gemini directly inside the existing
+outer sandbox and choose its approvals yourself.
 
 Connect without an owner management credential:
 

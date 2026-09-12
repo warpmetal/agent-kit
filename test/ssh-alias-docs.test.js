@@ -52,6 +52,16 @@ function missingAliasDocumentation(value) {
     ["one-shot Claude Code", /ssh <alias> ["']?claude -p(?:["']?\s|$)/i],
     ["interactive Cursor CLI", /ssh -t <alias> ["']?agent(?:["']?\s|$)/i],
     ["one-shot Cursor CLI", /ssh <alias> ["']?agent -p(?:["']?\s|$)/i],
+    ["interactive Gemini CLI", /ssh -t <alias> ["']?gemini(?:["']?\s|$)/i],
+    ["one-shot Gemini CLI", /ssh <alias> ["']?gemini -p(?:["']?\s|$)/i],
+    [
+      "Gemini is installed and authenticated inside the sandbox",
+      /Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside the sandbox/i,
+    ],
+    [
+      "Gemini inner container sandbox limitation",
+      /Gemini[^.]{0,160}(?:Docker|Podman)[^.]{0,160}(?:disabled|unavailable)[^.]{0,160}(?:container-engine|Docker|Podman) socket/i,
+    ],
     [
       "sandbox-owned provider authentication",
       /(?:authenticate|authentication|credentials?)[^.]{0,160}(?:inside|within|in) (?:the )?sandbox|sandbox-owned [^.]{0,80}(?:authentication|credentials?)/i,
@@ -107,6 +117,16 @@ function assertOfficialCompatibilitySources(name, value) {
     value,
     /https:\/\/cursor\.com\/docs\/cli\/(?:overview|headless)/,
     `${name} must link authoritative Cursor interactive or headless CLI guidance`,
+  );
+  assert.match(
+    value,
+    /https:\/\/geminicli\.com\/docs\/get-started\/installation\//,
+    `${name} must link authoritative Gemini installation guidance`,
+  );
+  assert.match(
+    value,
+    /https:\/\/geminicli\.com\/docs\/cli\/headless\//,
+    `${name} must link authoritative Gemini headless guidance`,
   );
 }
 

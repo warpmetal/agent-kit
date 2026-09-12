@@ -386,10 +386,12 @@ ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
 ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
+ssh -t <alias> gemini
+ssh <alias> gemini -p '<task>'
 ```
 
-Install and authenticate Codex, Claude Code, or Cursor CLI inside the
-sandbox first. Provider credentials are sandbox-owned and remain in its
+Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
+the sandbox first. Provider credentials are sandbox-owned and remain in its
 persistent home; WarpMetal does not install these tools, perform their login,
 or receive their credentials.
 
@@ -433,6 +435,14 @@ weaken sandbox forwarding controls to make the IDE connect. Use the supported
 `ssh -t <alias> agent` or in
 [headless mode](https://cursor.com/docs/cli/headless) with
 `ssh <alias> agent -p '<task>'` instead.
+
+Use the official Gemini CLI [installation guide](https://geminicli.com/docs/get-started/installation/)
+before running `ssh -t <alias> gemini`, or use its documented
+[headless mode](https://geminicli.com/docs/cli/headless/) with
+`ssh <alias> gemini -p '<task>'`. Gemini's optional Docker or Podman sandbox is
+normally unavailable inside the WarpMetal sandbox because no host
+container-engine socket is exposed; run Gemini directly inside the existing
+outer sandbox and choose its approvals yourself.
 
 On the first install in a server trust epoch, JSON output includes
 `hostKeyTrust.state: "trusted_first_use"` and the safe Ed25519 fingerprint.

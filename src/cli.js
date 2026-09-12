@@ -165,6 +165,12 @@ Sandbox SSH aliases:
     ssh <alias> claude -p "<prompt>"
     ssh -t <alias> agent
     ssh <alias> agent -p "<prompt>"
+    ssh -t <alias> gemini
+    ssh <alias> gemini -p "<prompt>"
+
+  Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
+  the sandbox first. WarpMetal does not install, authenticate, configure, or
+  receive credentials for those tools.
 
   Codex Desktop discovers the concrete alias through ~/.ssh/config and opens
   the sandbox login shell, so Codex must be available on the login-shell PATH.
@@ -172,10 +178,17 @@ Sandbox SSH aliases:
   a host shell, and do not relax isolation: ClearAllForwardings yes keeps all
   forwarding disabled.
 
+  Gemini's optional Docker or Podman sandbox is normally unavailable inside
+  the WarpMetal sandbox because no host container-engine socket is exposed;
+  run Gemini directly inside the existing outer sandbox and choose its
+  approvals yourself.
+
   Compatibility references:
     https://learn.chatgpt.com/docs/remote-connections
     https://cursor.com/docs/cli/overview
     https://cursor.com/docs/cli/headless
+    https://geminicli.com/docs/get-started/installation/
+    https://geminicli.com/docs/cli/headless/
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command

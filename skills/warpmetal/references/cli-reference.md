@@ -300,7 +300,13 @@ ssh -t <alias> claude
 ssh <alias> claude -p '<task>'
 ssh -t <alias> agent
 ssh <alias> agent -p '<task>'
+ssh -t <alias> gemini
+ssh <alias> gemini -p '<task>'
 ```
+
+Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
+the sandbox first. WarpMetal does not install, authenticate, configure, or
+receive credentials for those tools.
 
 [Codex Desktop](https://learn.chatgpt.com/docs/remote-connections) reads
 the concrete alias from `~/.ssh/config` and starts Codex through the sandbox
@@ -309,6 +315,13 @@ tested Cursor Remote SSH route requests prohibited dynamic forwarding and is
 not compatible with this boundary. Keep forwarding denied and use the
 [Cursor CLI](https://cursor.com/docs/cli/overview) interactive or
 [headless](https://cursor.com/docs/cli/headless) commands shown above.
+
+Install Gemini CLI from its official [installation guide](https://geminicli.com/docs/get-started/installation/)
+and use its documented [headless mode](https://geminicli.com/docs/cli/headless/)
+for `gemini -p`. Gemini's optional Docker or Podman sandbox is normally
+unavailable inside the WarpMetal sandbox because no host container-engine
+socket is exposed; run Gemini directly inside the existing outer sandbox and
+choose its approvals yourself.
 
 ## Skill installation and state
 
