@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
 import {
@@ -2761,7 +2762,7 @@ async function handleAccessInstallSsh(options, context) {
     alias: stringOption(options, "alias", { required: true }),
     connectionFile: stringOption(options, "connection-file", { required: true }),
     identity: stringOption(options, "identity", { required: true }),
-    homeDirectory: context.env.HOME,
+    homeDirectory: context.env.HOME || context.env.USERPROFILE || homedir(),
     confirm: stringOption(options, "confirm"),
   });
   emit(
@@ -2776,7 +2777,7 @@ async function handleAccessInstallSsh(options, context) {
 async function handleAccessRemoveSsh(options, context) {
   const result = await removeSshAlias({
     alias: stringOption(options, "alias", { required: true }),
-    homeDirectory: context.env.HOME,
+    homeDirectory: context.env.HOME || context.env.USERPROFILE || homedir(),
     confirm: stringOption(options, "confirm", { required: true }),
   });
   emit(

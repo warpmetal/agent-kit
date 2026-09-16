@@ -215,6 +215,50 @@ test("concrete aliases use one closed, injection-safe grammar", () => {
   }
 });
 
+test("Windows absolute paths accept native separators and normalize forward slashes", () => {
+  const validateAbsolutePath = requireAliasExport("validateAbsolutePath");
+  const label = "The Windows path";
+  assert.equal(
+    validateAbsolutePath(String.raw`C:\Users\HP\.ssh`, label, "win32"),
+    String.raw`C:\Users\HP\.ssh`,
+  );
+  assert.equal(
+    validateAbsolutePath("C:/Users/HP/.ssh", label, "win32"),
+    String.raw`C:\Users\HP\.ssh`,
+  );
+  for (const unsafe of [
+    "C:\\",
+    String.raw`Users\HP`,
+    String.raw`C:\Users\HP\%h`,
+    String.raw`C:\Users\HP\unsafe#path`,
+    "C:\\Users\\HP\\line\nbreak",
+  ]) {
+    assert.throws(
+      () => validateAbsolutePath(unsafe, label, "win32"),
+      /absolute path|unsafe interpolation/i,
+      unsafe,
+    );
+  }
+  assert.throws(
+    () => validateAbsolutePath(String.raw`/tmp/unsafe\path`, label, "linux"),
+    /absolute path|unsafe interpolation/i,
+  );
+});
+
+test("directory sync ignores Windows permission errors only on Windows", () => {
+  const isIgnorableDirectorySyncError = requireAliasExport(
+    "isIgnorableDirectorySyncError",
+  );
+  for (const code of ["EINVAL", "ENOTSUP", "EISDIR"]) {
+    assert.equal(isIgnorableDirectorySyncError({ code }, "linux"), true);
+  }
+  for (const code of ["EPERM", "EACCES"]) {
+    assert.equal(isIgnorableDirectorySyncError({ code }, "win32"), true);
+    assert.equal(isIgnorableDirectorySyncError({ code }, "linux"), false);
+  }
+  assert.equal(isIgnorableDirectorySyncError({ code: "EIO" }, "win32"), false);
+});
+
 test("renderer emits the exact hardened Host block without a forced command or TTY", async () => {
   const item = await fixture();
   try {
@@ -843,7 +887,7 @@ test("remove requires exact confirmation and restores unrelated SSH config bytes
   }
 });
 
-test("CLI install/remove dispatch is local-only and JSON output contains no profile or key material", async () => {
+test("CLI install/remove uses USERPROFILE when HOME is absent and remains local-only", async () => {
   const item = await fixture();
   const stdout = capture();
   const stderr = capture();
@@ -865,7 +909,7 @@ test("CLI install/remove dispatch is local-only and JSON output contains no prof
       {
         stdout: stdout.stream,
         stderr: stderr.stream,
-        env: { HOME: item.homeDirectory },
+        env: { USERPROFILE: item.homeDirectory },
         fetchImpl: async () => {
           networkCalls += 1;
           throw new Error("unexpected network access");
@@ -905,7 +949,7 @@ test("CLI install/remove dispatch is local-only and JSON output contains no prof
       {
         stdout: removeOut.stream,
         stderr: removeErr.stream,
-        env: { HOME: item.homeDirectory },
+        env: { USERPROFILE: item.homeDirectory },
         fetchImpl: async () => {
           networkCalls += 1;
           throw new Error("unexpected network access");

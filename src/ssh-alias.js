@@ -10,7 +10,7 @@ import {
   rmdir,
   unlink,
 } from "node:fs/promises";
-import { isAbsolute, join, parse, resolve } from "node:path";
+import { isAbsolute, join, parse, posix, resolve, win32 } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -21,7 +21,8 @@ import {
 import { CliError } from "./errors.js";
 
 const ALIAS_PATTERN = /^(?=.{1,63}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const UNSAFE_PATH = /[\0\r\n\t%"'`$!&;<>|*?()[\]{}\\#]/;
+const POSIX_UNSAFE_PATH = /[\0\r\n\t%"'`$!&;<>|*?()[\]{}\\#]/;
+const WINDOWS_UNSAFE_PATH = /[\0\r\n\t%"'`$!&;<>|*?()[\]{}#]/;
 const MANAGED_HEADER = "# Managed by WarpMetal. Do not edit.";
 
 function invalid(message) {
@@ -37,17 +38,18 @@ export function validateSshAlias(value) {
   return value;
 }
 
-function validateAbsolutePath(value, label) {
-  if (
-    typeof value !== "string" ||
-    !isAbsolute(value) ||
-    resolve(value) !== value ||
-    value === parse(value).root ||
-    UNSAFE_PATH.test(value)
-  ) {
+export function validateAbsolutePath(value, label, platform = process.platform) {
+  const path = platform === "win32" ? win32 : posix;
+  if (typeof value !== "string" || !path.isAbsolute(value)) {
     invalid(`${label} must be an absolute path without unsafe interpolation characters.`);
   }
-  return value;
+  const resolved = path.resolve(value);
+  const unsafePath =
+    platform === "win32" ? WINDOWS_UNSAFE_PATH : POSIX_UNSAFE_PATH;
+  if (resolved === path.parse(resolved).root || unsafePath.test(resolved)) {
+    invalid(`${label} must be an absolute path without unsafe interpolation characters.`);
+  }
+  return resolved;
 }
 
 function requireOwner(metadata, label) {
@@ -420,10 +422,17 @@ async function syncDirectory(path) {
     handle = await open(path, "r");
     await handle.sync();
   } catch (error) {
-    if (!["EINVAL", "ENOTSUP", "EISDIR"].includes(error?.code)) throw error;
+    if (!isIgnorableDirectorySyncError(error)) throw error;
   } finally {
     await handle?.close().catch(() => {});
   }
+}
+
+export function isIgnorableDirectorySyncError(error, platform = process.platform) {
+  return (
+    ["EINVAL", "ENOTSUP", "EISDIR"].includes(error?.code) ||
+    (platform === "win32" && ["EPERM", "EACCES"].includes(error?.code))
+  );
 }
 
 async function commitStaged(staged) {
