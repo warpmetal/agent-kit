@@ -46,8 +46,8 @@ Pass it to `warpmetal order prepare --runtime-file <path>`. If it contains a
 temporary sandbox, pass `--confirm TEMPORARY`. Preparing remains unpaid; keep
 the existing separate interactive-or-autonomous payment authority check.
 
-For the unreleased Codex and Claude Code automatic-profile candidate, an
-agent-enabled first boot passes a closed nested-sandbox opt-in through verified
+For released Codex and Claude Code automatic profiles, an agent-enabled first
+boot passes a closed nested-sandbox opt-in through verified
 provider cloud-init. The signed Runtime bundle owns the exact-path AppArmor
 policy for the neutral image's immutable Bubblewrap helper. No later customer
 SSH key is used. No public order field or CLI flag exists; VPS-only cloud-init
@@ -314,8 +314,9 @@ ssh -t <alias> gemini
 ssh <alias> gemini -p '<task>'
 ```
 
-Install and authenticate each selected provider tool inside the sandbox before
-use. Claude Code uses the `claude-code` candidate, unreleased automatic tool
+Authenticate each selected provider tool inside the sandbox after setup is
+ready. The public `/agent-tool-profiles` endpoint is authoritative for profile
+availability. Claude Code uses the released `claude-code` automatic tool
 profile. Claude Managed Agents are separate: `claude-managed-ant` is an
 install-only CLI profile. Installing `ant` does not authenticate a worker and
 does not activate Managed Agents. Cursor CLI remains manual and unavailable as

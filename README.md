@@ -425,11 +425,11 @@ Successful non-wait installs and status inspections exit 0 while reporting the
 accepted or current state; exit 8 is reserved for an actual `--wait` deadline
 timeout.
 
-The pinned Codex profile is a candidate, unreleased automatic tool profile.
-Release requires a published and pinned sandbox image, representative live first-boot validation, and live provider-authenticated Codex use.
-WarpMetal installs the exact registered artifacts when selected at order time
-or through `tools install`. Claude Code uses the `claude-code` candidate,
-unreleased automatic tool profile. Claude Managed Agents are separate:
+Codex is a released automatic tool profile when the public
+`/agent-tool-profiles` endpoint advertises it as `available`. WarpMetal installs
+the exact registered artifacts when selected at order time or through
+`tools install`. Claude Code uses the released `claude-code` automatic tool
+profile under the same public availability gate. Claude Managed Agents are separate:
 `claude-managed-ant` is an install-only CLI profile. Installing `ant` does not
 authenticate a worker and does not activate Managed Agents. Cursor CLI remains
 manual and unavailable as an automatic profile until separately qualified later.
@@ -482,13 +482,15 @@ ssh -t <alias> gemini
 ssh <alias> gemini -p '<task>'
 ```
 
-Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
-the sandbox before use. The candidate Codex and Claude Code profiles remain unreleased; Claude
-Code uses the `claude-code` automatic tool profile. Claude Managed Agents are
+Authenticate Codex or Claude Code inside the sandbox after its selected profile
+is ready. The public `/agent-tool-profiles` response is authoritative for
+availability and checkout selection. Claude Code uses the `claude-code`
+automatic tool profile. Claude Managed Agents are
 separate: `claude-managed-ant` is an install-only CLI profile. Installing `ant`
 does not authenticate a worker and does not activate Managed Agents. Cursor CLI
 remains manual and unavailable as an automatic profile until separately
-qualified later. Provider credentials are sandbox-owned and remain in its
+qualified later. Install and authenticate Cursor CLI or Gemini CLI inside the
+sandbox. Provider credentials are sandbox-owned and remain in its
 persistent home; WarpMetal does not perform provider login or receive them.
 
 The alias is local-only. It prepends a managed include to `~/.ssh/config` and

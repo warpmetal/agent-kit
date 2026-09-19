@@ -167,11 +167,11 @@ Runtime-enabled reloads:
   no silent in-place policy repair is claimed.
 
 Sandbox tool profiles:
-  The pinned Codex profile is a candidate, unreleased automatic tool profile.
-  Release requires a published and pinned sandbox image, representative live first-boot validation, and live provider-authenticated Codex use.
-  WarpMetal installs the exact registered artifacts when selected at order time
-  or with tools install. Claude Code uses the claude-code candidate, unreleased
-  automatic tool profile. Claude Managed Agents are separate: claude-managed-ant
+  Codex is a released automatic tool profile when the public
+  /agent-tool-profiles endpoint advertises it as available. WarpMetal installs
+  the exact registered artifacts when selected at order time or with tools
+  install. Claude Code uses the released claude-code automatic tool profile
+  under the same public availability gate. Claude Managed Agents are separate: claude-managed-ant
   is an install-only CLI profile. Installing ant does not authenticate a worker
   and does not activate Managed Agents. Cursor CLI remains manual and unavailable
   as an automatic profile until separately qualified later. Gemini CLI remains manual. Successful
@@ -202,12 +202,14 @@ Sandbox SSH aliases:
     ssh -t <alias> gemini
     ssh <alias> gemini -p "<prompt>"
 
-  Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
-  the sandbox before use. Codex and Claude Code use candidate, unreleased automatic profiles; the
-  Claude Code profile ID is claude-code. Claude Managed Agents are separate:
+  Authenticate Codex or Claude Code inside the sandbox after the selected
+  profile is ready. The public /agent-tool-profiles response is authoritative
+  for availability and checkout selection. The Claude Code automatic profile
+  ID is claude-code. Claude Managed Agents are separate:
   claude-managed-ant is an install-only CLI profile. Installing ant does not
   authenticate a worker and does not activate Managed Agents. Cursor CLI remains
   manual and unavailable as an automatic profile until separately qualified later.
+  Install and authenticate Cursor CLI or Gemini CLI inside the sandbox.
   WarpMetal never receives provider credentials; authentication remains inside
   the sandbox.
 
@@ -526,7 +528,16 @@ function publicAgentToolProfiles(data) {
       ? data.profiles.map((profile) =>
           profile && typeof profile === "object" && !Array.isArray(profile)
             ? Object.fromEntries(
-                ["id", "revision", "digest", "platform", "mode", "availability"]
+                [
+                  "id",
+                  "displayName",
+                  "revision",
+                  "digest",
+                  "platform",
+                  "mode",
+                  "availability",
+                  "checkoutSelectable",
+                ]
                   .filter((field) => Object.hasOwn(profile, field))
                   .map((field) => [field, profile[field]]),
               )

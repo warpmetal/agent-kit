@@ -135,11 +135,18 @@ test("tools list discovers the exact Codex, Claude Code, and install-only Manage
   const stderr = capture();
   const profiles = AUTOMATIC_PROFILE_IDS.map((id, index) => ({
     id,
+    displayName:
+      id === "codex"
+        ? "Codex"
+        : id === "claude-code"
+          ? "Claude Code"
+          : "Claude Managed Ant",
     revision: index + 1,
     digest: `sha256:${String(index + 1).repeat(64)}`,
     platform: "linux/amd64",
     mode: id === "claude-managed-ant" ? "managed-worker-binary" : "ordinary-cli",
-    availability: "unreleased-candidate",
+    availability: "available",
+    checkoutSelectable: id !== "claude-managed-ant",
     credential: `must-not-leak-${id}`,
   }));
   try {
@@ -780,24 +787,21 @@ test("CLI help, README, and both skill copies document tools commands and all pr
       .find(
         (paragraph) =>
           /Codex/i.test(paragraph) &&
-          /candidate/i.test(paragraph) &&
-          /unreleased/i.test(paragraph) &&
-          /automatic (?:tool )?profile/i.test(paragraph),
+          /automatic (?:tool )?profile/i.test(paragraph) &&
+          /agent-tool-profiles|advertis(?:e|es|ed).*available/i.test(paragraph),
       );
     assert.ok(
       codexBoundary,
-      `${label} does not describe Codex as a candidate/unreleased automatic profile`,
+      `${label} does not gate the released Codex automatic profile on public availability`,
     );
-    if (
-      /(?:currently\s+)?qualified\s+(?:pinned\s+)?Codex\b|\bCodex\b[^.\n]{0,120}\bqualified automatic\b/i.test(
-        document,
-      )
-    ) {
-      assert.fail(`${label} still describes Codex as qualified`);
-    }
+    assert.doesNotMatch(
+      document,
+      /Codex[^.\n]{0,180}(?:candidate|unreleased)|(?:candidate|unreleased)[^.\n]{0,180}Codex/i,
+      `${label} still describes Codex as an unreleased candidate`,
+    );
     assert.match(
       document,
-      /Claude Code[^.]{0,240}\bclaude-code\b[^.]{0,240}(?:candidate|unreleased)[^.]{0,240}automatic (?:tool )?profile|\bclaude-code\b[^.]{0,240}Claude Code[^.]{0,240}(?:candidate|unreleased)[^.]{0,240}automatic (?:tool )?profile/i,
+      /Claude Code[^.]{0,320}\bclaude-code\b[^.]{0,320}automatic (?:tool )?profile|\bclaude-code\b[^.]{0,320}Claude Code[^.]{0,320}automatic (?:tool )?profile/i,
       `${label} must distinguish the Claude Code automatic profile`,
     );
     assert.match(
@@ -823,7 +827,7 @@ test("CLI help, README, and both skill copies document tools commands and all pr
     assert.doesNotMatch(
       document,
       /WarpMetal[^.]{0,120}(?:cannot|does not|doesn't)[^.]{0,120}install[^.]{0,120}Codex/i,
-      `${label} contradicts the candidate Codex automatic profile`,
+      `${label} contradicts the Codex automatic profile`,
     );
   }
 });
