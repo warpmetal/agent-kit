@@ -68,6 +68,7 @@ const SANDBOX_TERMINAL_STATES = new Set([
   "failed",
 ]);
 const GRANT_TERMINAL_STATES = new Set(["applied", "revoked", "failed"]);
+const TOOL_SETUP_TERMINAL_STATES = new Set(["ready", "failed", "cancelled"]);
 const COMMON_OPTIONS = ["base-url", "json", "state-dir", "help"];
 
 const HELP = `WarpMetal CLI ${VERSION}
@@ -128,6 +129,10 @@ Usage:
     --alias <alias> [--confirm REFRESH]
   warpmetal sandbox access remove-ssh --alias <alias> --confirm REMOVE
   warpmetal sandbox connect --connection-file <path> --identity <sandbox-key> [-- <command>]
+  warpmetal tools list --server <serverId>
+  warpmetal tools install --server <serverId> --sandbox <sandboxId> --profile <profileId>
+    [--idempotency-key <key>] [--wait] [--timeout-seconds <n>]
+  warpmetal tools status --server <serverId> [--wait] [--timeout-seconds <n>]
   warpmetal state list
   warpmetal agent install --target <codex|claude|all> [--scope <user|project>] [--force]
 
@@ -155,6 +160,26 @@ Runtime-enabled reloads:
   then refresh every sandbox connection profile before reconnecting. The
   successful operation also records a new owner SSH trust epoch; verify the
   replacement host key before owner SSH.
+  Agent-enabled first boot and reload also activate the signed Runtime's exact
+  immutable-Bubblewrap host policy through verified cloud-init. There is no
+  public nested-sandbox order field or runtime-install flag, and VPS-only
+  cloud-init is unchanged. Existing enrolled hosts use reload/reprovision;
+  no silent in-place policy repair is claimed.
+
+Sandbox tool profiles:
+  The pinned Codex profile is a candidate, unreleased automatic tool profile.
+  Release requires a published and pinned sandbox image, representative live first-boot validation, and live provider-authenticated Codex use.
+  WarpMetal installs the exact registered artifacts when selected at order time
+  or with tools install. Claude Code uses the claude-code candidate, unreleased
+  automatic tool profile. Claude Managed Agents are separate: claude-managed-ant
+  is an install-only CLI profile. Installing ant does not authenticate a worker
+  and does not activate Managed Agents. Cursor CLI remains manual and unavailable
+  as an automatic profile until separately qualified later. Gemini CLI remains manual. Successful
+  non-wait installs and status inspections exit 0; exit 8 is reserved for an
+  actual --wait deadline timeout.
+
+  warpmetal agent install installs only the bundled WarpMetal skill; it does not
+  install sandbox tools or change a sandbox tool profile.
 
 Sandbox SSH aliases:
   Refresh the authenticated connection profile before refreshing an existing
@@ -178,8 +203,13 @@ Sandbox SSH aliases:
     ssh <alias> gemini -p "<prompt>"
 
   Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
-  the sandbox first. WarpMetal does not install, authenticate, configure, or
-  receive credentials for those tools.
+  the sandbox before use. Codex and Claude Code use candidate, unreleased automatic profiles; the
+  Claude Code profile ID is claude-code. Claude Managed Agents are separate:
+  claude-managed-ant is an install-only CLI profile. Installing ant does not
+  authenticate a worker and does not activate Managed Agents. Cursor CLI remains
+  manual and unavailable as an automatic profile until separately qualified later.
+  WarpMetal never receives provider credentials; authentication remains inside
+  the sandbox.
 
   Codex Desktop discovers the concrete alias through ~/.ssh/config and opens
   the sandbox login shell, so Codex must be available on the login-shell PATH.
@@ -379,6 +409,17 @@ async function requireReloadToken(store, serverId, options, env) {
   return token;
 }
 
+async function requireStoredOwnerToken(store, serverId) {
+  const token = (await store.server(serverId))?.ownerToken;
+  if (!token) {
+    throw new CliError(
+      `No stored owner credential is available for ${serverId}. Restore the private state file created for that server.`,
+      { exitCode: 4 },
+    );
+  }
+  return token;
+}
+
 function safePreparedOrder(data, stateFile) {
   return {
     task: data.task,
@@ -438,6 +479,85 @@ async function pollRuntime(client, serverId, token, timeoutSeconds) {
     }
     ensureBeforeDeadline(deadline, `Runtime ${serverId}`);
     await delay(suggestedDelay(result));
+  }
+}
+
+function toolSetupOutcome(result) {
+  const operations = result.data?.setupOperations || [];
+  if (operations.some((operation) => ["failed", "cancelled"].includes(operation.state))) {
+    return 5;
+  }
+  return 0;
+}
+
+function publicToolSetupOperation(operation) {
+  if (!operation || typeof operation !== "object" || Array.isArray(operation)) {
+    return {};
+  }
+  return Object.fromEntries(
+    [
+      "id",
+      "sandboxId",
+      "sandboxGeneration",
+      "profileId",
+      "profileRevision",
+      "profileDigest",
+      "state",
+      "receiptDigest",
+      "errorCode",
+    ]
+      .filter((field) => Object.hasOwn(operation, field))
+      .map((field) => [field, operation[field]]),
+  );
+}
+
+function publicToolSetupData(data) {
+  if (Array.isArray(data?.setupOperations)) {
+    return {
+      setupOperations: data.setupOperations.map(publicToolSetupOperation),
+    };
+  }
+  return { setupOperation: publicToolSetupOperation(data?.setupOperation) };
+}
+
+function publicAgentToolProfiles(data) {
+  return {
+    profiles: Array.isArray(data?.profiles)
+      ? data.profiles.map((profile) =>
+          profile && typeof profile === "object" && !Array.isArray(profile)
+            ? Object.fromEntries(
+                ["id", "revision", "digest", "platform", "mode", "availability"]
+                  .filter((field) => Object.hasOwn(profile, field))
+                  .map((field) => [field, profile[field]]),
+              )
+            : {},
+        )
+      : [],
+  };
+}
+
+async function pollToolSetup(client, serverId, token, timeoutSeconds, operationId) {
+  const deadline = timeoutDeadline(timeoutSeconds);
+  while (true) {
+    const result = await client.getAgentSetup(serverId, token);
+    const operations = result.data?.setupOperations || [];
+    const selected = operationId
+      ? operations.filter((operation) => operation.id === operationId)
+      : operations;
+    if (
+      selected.length > 0 &&
+      selected.every((operation) => TOOL_SETUP_TERMINAL_STATES.has(operation.state))
+    ) {
+      return operationId
+        ? { ...result, data: { setupOperation: selected[0] } }
+        : result;
+    }
+    ensureBeforeDeadline(deadline, `Tool setup for ${serverId}`);
+    const seconds = suggestedDelay(result);
+    const remainingMs = deadline - Date.now();
+    await new Promise((resolveDelay) =>
+      setTimeout(resolveDelay, Math.min(seconds * 1_000, Math.max(0, remainingMs))),
+    );
   }
 }
 
@@ -780,9 +900,12 @@ async function handlePrepareOrder(client, store, options, context) {
   }
   const email = stringOption(options, "email");
   const runtimeFile = stringOption(options, "runtime-file");
-  const sandboxes = runtimeFile
+  const runtimeIntent = runtimeFile
     ? await readSandboxFile(runtimeFile)
     : undefined;
+  const sandboxes = Array.isArray(runtimeIntent)
+    ? runtimeIntent
+    : runtimeIntent?.sandboxes;
   if (sandboxes) {
     requireTemporaryConfirmation(sandboxes, stringOption(options, "confirm"));
   }
@@ -828,7 +951,11 @@ async function handlePrepareOrder(client, store, options, context) {
     sshKeyLabel: selected.identity.keyName,
   };
   if (email) request.email = email;
-  if (sandboxes) request.agentRuntime = { sandboxes };
+  if (runtimeIntent) {
+    request.agentRuntime = Array.isArray(runtimeIntent)
+      ? { sandboxes: runtimeIntent }
+      : runtimeIntent;
+  }
   const key =
     stringOption(options, "idempotency-key") || idempotencyKey("order");
   const response = await client.prepareOrder(request, key);
@@ -839,7 +966,7 @@ async function handlePrepareOrder(client, store, options, context) {
     selected.identity.identityId,
   );
   const safe = safePreparedOrder(response.data, store.path);
-  if (sandboxes) {
+  if (runtimeIntent) {
     safe.agentRuntimeIntent = {
       sandboxes: sandboxes.map((sandbox) => ({
         name: sandbox.name,
@@ -848,6 +975,9 @@ async function handlePrepareOrder(client, store, options, context) {
         expiresInSeconds: sandbox.expiresInSeconds,
       })),
     };
+    if (!Array.isArray(runtimeIntent)) {
+      safe.agentRuntimeIntent.setup = runtimeIntent.setup;
+    }
   }
   emit(
     context.stdout,
@@ -2789,6 +2919,82 @@ async function handleAccessRemoveSsh(options, context) {
   return 0;
 }
 
+async function handleToolsList(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const token = await requireStoredOwnerToken(store, serverId);
+  const result = await client.listAgentToolProfiles(token);
+  const output = publicAgentToolProfiles(result.data);
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    output.profiles
+      .map((profile) => `${profile.id} revision ${profile.revision}`)
+      .join("\n"),
+  );
+  return 0;
+}
+
+async function handleToolsInstall(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const sandboxId = stringOption(options, "sandbox", { required: true });
+  const profileId = stringOption(options, "profile", { required: true });
+  const token = await requireStoredOwnerToken(store, serverId);
+  const key =
+    stringOption(options, "idempotency-key") || idempotencyKey("tools-install");
+  let result = await client.installAgentToolProfile(
+    serverId,
+    sandboxId,
+    profileId,
+    token,
+    key,
+  );
+  const wait = booleanOption(options, "wait");
+  if (wait) {
+    result = await pollToolSetup(
+      client,
+      serverId,
+      token,
+      integerOption(options, "timeout-seconds", 900),
+      result.data?.setupOperation?.id,
+    );
+  }
+  const output = publicToolSetupData(result.data);
+  const operation = output.setupOperation;
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    `Tool setup ${operation?.id || "requested"}: ${operation?.state || "pending"}.`,
+  );
+  if (["failed", "cancelled"].includes(operation?.state)) return 5;
+  if (!wait) return 0;
+  return operation?.state === "ready" ? 0 : 5;
+}
+
+async function handleToolsStatus(client, store, options, context) {
+  const serverId = stringOption(options, "server", { required: true });
+  const token = await requireStoredOwnerToken(store, serverId);
+  const result = booleanOption(options, "wait")
+    ? await pollToolSetup(
+        client,
+        serverId,
+        token,
+        integerOption(options, "timeout-seconds", 900),
+      )
+    : await client.getAgentSetup(serverId, token);
+  const output = publicToolSetupData(result.data);
+  emit(
+    context.stdout,
+    output,
+    context.json,
+    output.setupOperations
+      .map((operation) => `${operation.id}: ${operation.state}`)
+      .join("\n"),
+  );
+  return toolSetupOutcome({ ...result, data: output });
+}
+
 async function dispatch(positionals, options, passthrough, context) {
   const command = positionals.join(" ");
   if (passthrough.length > 0 && command !== "sandbox connect") {
@@ -3242,6 +3448,28 @@ async function dispatch(positionals, options, passthrough, context) {
     case "sandbox connect":
       rejectUnknownOptions(options, ["connection-file", "identity", "help"]);
       return handleSandboxConnect(options, passthrough, context);
+    case "tools list":
+      rejectUnknownOptions(options, [...COMMON_OPTIONS, "server"]);
+      return handleToolsList(client, store, options, context);
+    case "tools install":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "sandbox",
+        "profile",
+        "idempotency-key",
+        "wait",
+        "timeout-seconds",
+      ]);
+      return handleToolsInstall(client, store, options, context);
+    case "tools status":
+      rejectUnknownOptions(options, [
+        ...COMMON_OPTIONS,
+        "server",
+        "wait",
+        "timeout-seconds",
+      ]);
+      return handleToolsStatus(client, store, options, context);
     case "state list": {
       rejectUnknownOptions(options, COMMON_OPTIONS);
       const summary = await store.summary();

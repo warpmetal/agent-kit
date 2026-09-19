@@ -346,6 +346,36 @@ export class WarpMetalClient {
     );
   }
 
+  listAgentToolProfiles(token) {
+    return this.request("GET", "/agent-tool-profiles", { token });
+  }
+
+  installAgentToolProfile(
+    serverId,
+    sandboxId,
+    profileId,
+    token,
+    idempotencyKey,
+  ) {
+    return this.request(
+      "POST",
+      `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/tool-setup-operations`,
+      {
+        body: { profileId },
+        token,
+        idempotencyKey,
+      },
+    );
+  }
+
+  getAgentSetup(serverId, token) {
+    return this.request(
+      "GET",
+      `/servers/${encodeURIComponent(serverId)}/agent-setup`,
+      { token },
+    );
+  }
+
   sandboxAction(serverId, sandboxId, action, token, idempotencyKey) {
     const body =
       action === "refresh_image"

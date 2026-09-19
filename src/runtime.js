@@ -15,6 +15,9 @@ const SANDBOX_FIELDS = new Set([
   "lifetime",
   "expiresInSeconds",
 ]);
+const RUNTIME_FIELDS = new Set(["sandboxes", "setup"]);
+const SETUP_FIELDS = new Set(["version", "sandboxProfiles"]);
+const SANDBOX_PROFILE_FIELDS = new Set(["sandboxName", "profileId"]);
 
 function exactFields(value, allowed, label) {
   const unknown = Object.keys(value).find((field) => !allowed.has(field));
@@ -113,8 +116,62 @@ export async function readSandboxFile(path) {
       exitCode: 2,
     });
   }
-  exactFields(document, new Set(["sandboxes"]), "The sandbox JSON file");
-  return validateSandboxBatch(document.sandboxes);
+  exactFields(document, RUNTIME_FIELDS, "The sandbox JSON file");
+  const sandboxes = validateSandboxBatch(document.sandboxes);
+  if (document.setup === undefined) return sandboxes;
+  const setup = document.setup;
+  if (!setup || typeof setup !== "object" || Array.isArray(setup)) {
+    throw new CliError("setup must be a JSON object.", { exitCode: 2 });
+  }
+  exactFields(setup, SETUP_FIELDS, "setup");
+  if (setup.version !== 1) {
+    throw new CliError("setup.version must be 1.", { exitCode: 2 });
+  }
+  if (
+    !Array.isArray(setup.sandboxProfiles) ||
+    setup.sandboxProfiles.length < 1 ||
+    setup.sandboxProfiles.length > 32
+  ) {
+    throw new CliError(
+      "setup.sandboxProfiles must contain between 1 and 32 entries.",
+      { exitCode: 2 },
+    );
+  }
+  const sandboxNames = new Set(sandboxes.map((sandbox) => sandbox.name));
+  const selectedNames = new Set();
+  const sandboxProfiles = setup.sandboxProfiles.map((input) => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new CliError("Every setup profile selection must be a JSON object.", {
+        exitCode: 2,
+      });
+    }
+    exactFields(input, SANDBOX_PROFILE_FIELDS, "A setup profile selection");
+    if (typeof input.sandboxName !== "string" || !NAME.test(input.sandboxName)) {
+      throw new CliError("setup sandbox names must use lowercase identifiers.", {
+        exitCode: 2,
+      });
+    }
+    if (typeof input.profileId !== "string" || !NAME.test(input.profileId)) {
+      throw new CliError("setup profile IDs must use lowercase identifiers.", {
+        exitCode: 2,
+      });
+    }
+    if (!sandboxNames.has(input.sandboxName)) {
+      throw new CliError(
+        `setup references an unknown sandbox: ${input.sandboxName}`,
+        { exitCode: 2 },
+      );
+    }
+    if (selectedNames.has(input.sandboxName)) {
+      throw new CliError(
+        `setup selects the sandbox more than once: ${input.sandboxName}`,
+        { exitCode: 2 },
+      );
+    }
+    selectedNames.add(input.sandboxName);
+    return { sandboxName: input.sandboxName, profileId: input.profileId };
+  });
+  return { sandboxes, setup: { version: 1, sandboxProfiles } };
 }
 
 export function containsTemporary(sandboxes) {

@@ -1,3 +1,11 @@
+# CLI v0.8.13 / plugin v0.1.7
+
+Adds closed registered sandbox-tool discovery, installation, status polling,
+and per-sandbox order-time profile selection for the qualified Codex and Claude
+Code profiles. Tool installation accepts only server-registered profile IDs;
+provider credentials remain outside WarpMetal. Cursor stays manual, and the
+Claude Managed Agents CLI remains install-only rather than an activated worker.
+
 # CLI v0.8.2
 
 Clarifies that WarpMetal installs the owner SSH key for `root` on every
