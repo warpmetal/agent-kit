@@ -441,6 +441,41 @@ test("tools status without wait is successful for applying and empty inspections
   }
 });
 
+test("tools status with wait returns immediately for an empty operation list", async () => {
+  const { directory, stateDirectory } = await stateFixture();
+  const stdout = capture();
+  const stderr = capture();
+  let requests = 0;
+  try {
+    const exitCode = await main(
+      commandArguments(stateDirectory, [
+        "tools",
+        "status",
+        "--server",
+        SERVER_ID,
+        "--wait",
+        "--timeout-seconds",
+        "1",
+      ]),
+      {
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: {},
+        fetchImpl: async () => {
+          requests += 1;
+          return jsonResponse(200, { setupOperations: [] });
+        },
+      },
+    );
+
+    assert.equal(exitCode, 0, stderr.value());
+    assert.equal(requests, 1);
+    assert.deepEqual(JSON.parse(stdout.value()), { setupOperations: [] });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("tools status wait is deadline bounded and reports timeout without secrets", async () => {
   const { directory, stateDirectory } = await stateFixture();
   const stdout = capture();

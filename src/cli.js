@@ -555,10 +555,10 @@ async function pollToolSetup(client, serverId, token, timeoutSeconds, operationI
     const selected = operationId
       ? operations.filter((operation) => operation.id === operationId)
       : operations;
-    if (
-      selected.length > 0 &&
-      selected.every((operation) => TOOL_SETUP_TERMINAL_STATES.has(operation.state))
-    ) {
+    const terminal = selected.every((operation) =>
+      TOOL_SETUP_TERMINAL_STATES.has(operation.state),
+    );
+    if ((operationId ? selected.length > 0 : true) && terminal) {
       return operationId
         ? { ...result, data: { setupOperation: selected[0] } }
         : result;
