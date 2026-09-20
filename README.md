@@ -41,10 +41,14 @@ x402api help --json
 Install the bundled skill for supported coding agents:
 
 ```sh
+warpmetal agent install --target <codex|claude|all>
 warpmetal agent install --target codex
 warpmetal agent install --target claude
 warpmetal agent install --target all
 ```
+
+`warpmetal agent install` installs only the bundled WarpMetal skill; it does
+not install sandbox tools or select a sandbox tool profile.
 
 Use `--scope project` to install into the current repository instead of the
 user-level agent directory.
@@ -58,7 +62,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.8.1 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.8.13 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 
@@ -340,6 +344,19 @@ compatible external signer.
   and reports an owner-host-key refresh opens one new managed trust epoch;
   failed or ambiguous reloads retain the old pin and never permit replacement.
   Erased workspaces are never described as recoverable.
+- New agent-enabled candidate orders and Runtime-enabled reloads pass the
+  closed nested-sandbox opt-in inside verified provider cloud-init. The signed
+  Runtime bundle installs the exact-path AppArmor policy for the neutral
+  image's immutable Bubblewrap helper; this needs no follow-up customer SSH
+  key and adds no public order field or CLI flag. VPS-only cloud-init is
+  unchanged. Existing enrolled hosts use reload/reprovision; the CLI does not
+  claim a silent in-place policy repair command.
+- Runtime reports a new or replaced sandbox generation as running only after a
+  fixed, credential-free inner-Bubblewrap oracle proves nested namespaces, an
+  inherited read-only view of the outer Agent Box's already isolated procfs,
+  an allowed workspace write, empty Linux capability sets,
+  `no-new-privileges`, and protected-root write denial. Failure stops the
+  container before access grants or tool setup advance.
 
 For a Runtime-enabled reload, no separate installation command is part of the
 successful path:
@@ -387,6 +404,61 @@ warpmetal sandbox access keygen \
   --json
 ```
 
+### Registered sandbox tools
+
+WarpMetal can apply only registered, immutable tool profiles. These commands use
+the owner credential already stored in the private WarpMetal state file; they do
+not accept a bearer token on the command line or permit a caller-supplied URL,
+shell command, environment, or artifact override.
+
+```sh
+warpmetal tools list --server <serverId> --json
+warpmetal tools install --server <serverId> --sandbox <sandboxId> --profile <profileId> \
+  [--idempotency-key <key>] [--wait] [--timeout-seconds <n>] --json
+warpmetal tools status --server <serverId> [--wait] [--timeout-seconds <n>] --json
+```
+
+`tools install` posts only the selected registered `profileId`. Waiting is
+bounded: `ready` exits 0, `failed` or `cancelled` exits 5, and a timeout exits 8.
+JSON output contains public profile, operation, and receipt metadata only.
+Successful non-wait installs and status inspections exit 0 while reporting the
+accepted or current state; exit 8 is reserved for an actual `--wait` deadline
+timeout.
+
+Codex is a released automatic tool profile when the public
+`/agent-tool-profiles` endpoint advertises it as `available`. WarpMetal installs
+the exact registered artifacts when selected at order time or through
+`tools install`. Claude Code uses the released `claude-code` automatic tool
+profile under the same public availability gate. Claude Managed Agents are separate:
+`claude-managed-ant` is an install-only CLI profile. Installing `ant` does not
+authenticate a worker and does not activate Managed Agents. Cursor CLI remains
+manual and unavailable as an automatic profile until separately qualified later.
+Gemini CLI remains manual.
+
+An order `--runtime-file` may add the closed optional setup intent beside its
+`sandboxes` array:
+
+```json
+{
+  "sandboxes": [
+    { "name": "codex-worker", "size": "small" },
+    { "name": "claude-worker", "size": "small" },
+    { "name": "managed-worker", "size": "small" }
+  ],
+  "setup": {
+    "version": 1,
+    "sandboxProfiles": [
+      { "sandboxName": "codex-worker", "profileId": "codex" },
+      { "sandboxName": "claude-worker", "profileId": "claude-code" },
+      { "sandboxName": "managed-worker", "profileId": "claude-managed-ant" }
+    ]
+  }
+}
+```
+
+Only those fields are accepted. Each setup entry must name a sandbox in the
+same file and a registered profile ID.
+
 ### Install a standard sandbox SSH alias
 
 Use a separate keypair and access grant for each sandbox. After the grant is
@@ -410,10 +482,16 @@ ssh -t <alias> gemini
 ssh <alias> gemini -p '<task>'
 ```
 
-Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
-the sandbox first. Provider credentials are sandbox-owned and remain in its
-persistent home; WarpMetal does not install these tools, perform their login,
-or receive their credentials.
+Authenticate Codex or Claude Code inside the sandbox after its selected profile
+is ready. The public `/agent-tool-profiles` response is authoritative for
+availability and checkout selection. Claude Code uses the `claude-code`
+automatic tool profile. Claude Managed Agents are
+separate: `claude-managed-ant` is an install-only CLI profile. Installing `ant`
+does not authenticate a worker and does not activate Managed Agents. Cursor CLI
+remains manual and unavailable as an automatic profile until separately
+qualified later. Install and authenticate Cursor CLI or Gemini CLI inside the
+sandbox. Provider credentials are sandbox-owned and remain in its
+persistent home; WarpMetal does not perform provider login or receive them.
 
 The alias is local-only. It prepends a managed include to `~/.ssh/config` and
 uses the profile's pinned host key plus the sandbox identity. It never uses or

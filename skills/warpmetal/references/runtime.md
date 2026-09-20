@@ -46,6 +46,20 @@ Pass it to `warpmetal order prepare --runtime-file <path>`. If it contains a
 temporary sandbox, pass `--confirm TEMPORARY`. Preparing remains unpaid; keep
 the existing separate interactive-or-autonomous payment authority check.
 
+For released Codex and Claude Code automatic profiles, an agent-enabled first
+boot passes a closed nested-sandbox opt-in through verified
+provider cloud-init. The signed Runtime bundle owns the exact-path AppArmor
+policy for the neutral image's immutable Bubblewrap helper. No later customer
+SSH key is used. No public order field or CLI flag exists; VPS-only cloud-init
+remains unchanged. Existing enrolled hosts require reload/reprovision for this policy
+because no silent in-place repair command is claimed.
+Runtime does not report a new or replaced sandbox generation as running until a
+fixed, credential-free inner-Bubblewrap oracle proves nested namespaces, an
+inherited read-only view of the outer Agent Box's already isolated procfs, an
+allowed workspace write, empty Linux capability sets, `no-new-privileges`, and
+protected-root write denial; failure stops the container before access grants
+or tool setup advance.
+
 For an existing ready server:
 
 Use the WarpMetal owner account `root` for every supported host image; do not
@@ -300,10 +314,15 @@ ssh -t <alias> gemini
 ssh <alias> gemini -p '<task>'
 ```
 
-Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside
-the sandbox first. Provider authentication and credentials are sandbox-owned
-and persist only in the sandbox home. WarpMetal does not install, authenticate,
-configure, or receive credentials for those tools.
+Authenticate each selected provider tool inside the sandbox after setup is
+ready. The public `/agent-tool-profiles` endpoint is authoritative for profile
+availability. Claude Code uses the released `claude-code` automatic tool
+profile. Claude Managed Agents are separate: `claude-managed-ant` is an
+install-only CLI profile. Installing `ant` does not authenticate a worker and
+does not activate Managed Agents. Cursor CLI remains manual and unavailable as
+an automatic profile until separately qualified later. Provider authentication
+and credentials are sandbox-owned and persist only in the sandbox home;
+WarpMetal does not perform provider login or receive those credentials.
 
 [Codex Desktop](https://learn.chatgpt.com/docs/remote-connections)
 discovers a concrete alias through `~/.ssh/config`, requires ordinary

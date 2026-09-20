@@ -56,7 +56,7 @@ function missingAliasDocumentation(value) {
     ["one-shot Gemini CLI", /ssh <alias> ["']?gemini -p(?:["']?\s|$)/i],
     [
       "Gemini is installed and authenticated inside the sandbox",
-      /Install and authenticate Codex, Claude Code, Cursor CLI, or Gemini CLI inside the sandbox/i,
+      /Install and authenticate (?:Codex, Claude Code, )?Cursor CLI or Gemini CLI inside the sandbox/i,
     ],
     [
       "Gemini inner container sandbox limitation",
