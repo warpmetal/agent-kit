@@ -232,19 +232,35 @@ export class StateStore {
     return result;
   }
 
-  async savePreparedOrder(response, checkoutBody, identityId) {
+  async savePreparedOrder(response, checkoutBody, identityId, account = null) {
     const { task, ownerToken } = response;
-    if (!task?.id || !task?.serverId || !ownerToken) {
+    if (!task?.id || !task?.serverId || (account ? ownerToken !== undefined : !ownerToken)) {
       throw new CliError("WarpMetal returned an incomplete prepared order.");
     }
+    if (account && (!account.principalId || !account.accountOrigin || !account.identityOrigin)) {
+      throw new CliError("The prepared order is missing its account binding.");
+    }
+    const authority = account ? {
+      ownershipMode: "account",
+      accountPrincipalId: account.principalId,
+      accountOrigin: account.accountOrigin,
+      identityOrigin: account.identityOrigin,
+    } : { ownerToken };
     await this.update((state) => {
+      const previous = state.orders[task.id];
+      const previousServer = state.servers[task.serverId];
+      if ([previous, previousServer].some((record) => record && (account
+        ? record.ownerToken || (record.accountPrincipalId && record.accountPrincipalId !== account.principalId)
+        : record.ownershipMode === "account"))) {
+        throw new CliError("The prepared order conflicts with an existing local ownership binding.");
+      }
       state.orders[task.id] = {
         taskId: task.id,
         serverId: task.serverId,
         planId: task.planId,
         checkoutPath: task.checkoutPath,
         checkoutBody,
-        ownerToken,
+        ...authority,
         identityId,
         createdAt: new Date().toISOString(),
       };
@@ -252,7 +268,7 @@ export class StateStore {
         ...(state.servers[task.serverId] || {}),
         serverId: task.serverId,
         taskId: task.id,
-        ownerToken,
+        ...authority,
         identityId,
       };
       if (identityId && state.identities[identityId]) {

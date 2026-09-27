@@ -15,9 +15,81 @@ const SANDBOX_FIELDS = new Set([
   "lifetime",
   "expiresInSeconds",
 ]);
-const RUNTIME_FIELDS = new Set(["sandboxes", "setup"]);
+const RUNTIME_FIELDS = new Set(["sandboxes", "setup", "teams"]);
 const SETUP_FIELDS = new Set(["version", "sandboxProfiles"]);
 const SANDBOX_PROFILE_FIELDS = new Set(["sandboxName", "profileId"]);
+
+function record(value, allowed, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new CliError(`${label} must be a JSON object.`, { exitCode: 2 });
+  }
+  exactFields(value, new Set(allowed), label);
+  return value;
+}
+
+function invalidTeam(message) {
+  throw new CliError(message, { exitCode: 2 });
+}
+
+// Same structural team-v1 boundary as checkout. Model/provider qualification
+// remains server-owned; parsing an intent never enables runtime execution.
+export function validateTeamIntent(value, sandboxes) {
+  record(value, ["version", "teams"], "teams");
+  if (value.version !== 1 || !Array.isArray(value.teams) || value.teams.length !== 1) {
+    invalidTeam("teams version 1 requires exactly one team.");
+  }
+  const team = record(value.teams[0], ["name", "members", "links", "startPolicy"], "A team");
+  if (typeof team.name !== "string" || !team.name || team.name.length > 64 ||
+      team.name.trim() !== team.name || /[\u0000-\u001f\u007f]/.test(team.name)) {
+    invalidTeam("Team names must be 1-64 characters without controls or outer whitespace.");
+  }
+  if (team.startPolicy !== "manual") invalidTeam("Team startPolicy must be manual.");
+  if (!Array.isArray(team.members) || team.members.length < 2 || team.members.length > 8) {
+    invalidTeam("A team requires 2-8 members.");
+  }
+  const declared = new Set(sandboxes.map((sandbox) => sandbox.name));
+  const names = new Set();
+  const members = team.members.map((raw) => {
+    const member = record(raw, ["sandboxName", "role", "providerId", "modelId", "authMode"], "A team member");
+    if (typeof member.sandboxName !== "string" || !declared.has(member.sandboxName) || names.has(member.sandboxName)) {
+      invalidTeam("Each team member must reference a distinct declared sandbox.");
+    }
+    names.add(member.sandboxName);
+    if (!["manager", "worker", "reviewer"].includes(member.role)) invalidTeam("Invalid team member role.");
+    if (typeof member.providerId !== "string" || !/^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/.test(member.providerId)) {
+      invalidTeam("Team providerId must be an exact lowercase provider identifier.");
+    }
+    if (member.modelId != null && (typeof member.modelId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(member.modelId))) {
+      invalidTeam("Team modelId must be a bare model identifier.");
+    }
+    if (member.authMode != null && (!["api_key", "chatgpt_subscription"].includes(member.authMode) ||
+        (member.authMode === "chatgpt_subscription" && member.providerId !== "openai"))) {
+      invalidTeam("Team authMode must be api_key or, for OpenAI, chatgpt_subscription.");
+    }
+    return { sandboxName: member.sandboxName, role: member.role, providerId: member.providerId,
+      ...(member.modelId == null ? {} : { modelId: member.modelId }),
+      ...(member.authMode == null ? {} : { authMode: member.authMode }) };
+  });
+  const managers = members.filter((member) => member.role === "manager");
+  if (managers.length !== 1) invalidTeam("A team requires exactly one manager.");
+  const rawLinks = team.links === undefined ? [] : team.links;
+  if (!Array.isArray(rawLinks) || rawLinks.length > 56) invalidTeam("Team links must have at most 56 entries.");
+  const triples = new Set();
+  const links = rawLinks.map((raw) => {
+    const link = record(raw, ["from", "to", "capability"], "A team link");
+    if (!names.has(link.from) || !names.has(link.to) || link.from === link.to ||
+        !["task.delegate", "message.send"].includes(link.capability) ||
+        (link.capability === "task.delegate" && link.from !== managers[0].sandboxName)) {
+      invalidTeam("Team links require distinct members; only the manager may delegate tasks.");
+    }
+    const triple = `${link.from}>${link.to}:${link.capability}`;
+    if (triples.has(triple)) invalidTeam("Duplicate team links are not allowed.");
+    triples.add(triple);
+    return { from: link.from, to: link.to, capability: link.capability };
+  });
+  return { version: 1, teams: [{ name: team.name, members,
+    ...(links.length ? { links } : {}), startPolicy: "manual" }] };
+}
 
 function exactFields(value, allowed, label) {
   const unknown = Object.keys(value).find((field) => !allowed.has(field));
@@ -118,7 +190,8 @@ export async function readSandboxFile(path) {
   }
   exactFields(document, RUNTIME_FIELDS, "The sandbox JSON file");
   const sandboxes = validateSandboxBatch(document.sandboxes);
-  if (document.setup === undefined) return sandboxes;
+  const teams = document.teams === undefined ? undefined : validateTeamIntent(document.teams, sandboxes);
+  if (document.setup === undefined) return teams ? { sandboxes, teams } : sandboxes;
   const setup = document.setup;
   if (!setup || typeof setup !== "object" || Array.isArray(setup)) {
     throw new CliError("setup must be a JSON object.", { exitCode: 2 });
@@ -171,7 +244,7 @@ export async function readSandboxFile(path) {
     selectedNames.add(input.sandboxName);
     return { sandboxName: input.sandboxName, profileId: input.profileId };
   });
-  return { sandboxes, setup: { version: 1, sandboxProfiles } };
+  return { sandboxes, setup: { version: 1, sandboxProfiles }, ...(teams ? { teams } : {}) };
 }
 
 export function containsTemporary(sandboxes) {

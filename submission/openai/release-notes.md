@@ -1,3 +1,18 @@
+# CLI v0.9.0 / plugin v0.1.8 — candidate
+
+Adds browser-approved customer login, independent revocable CLI sessions,
+account order and device inventory, and explicit account-owned unpaid order
+preparation. Login works before any order fields and supports headless URL/code
+approval. Existing SSH and owner-token workflows remain supported.
+
+Adds the published model catalog command and the existing team-v1 runtime-file
+format. Model visibility reuses the public catalog; runtime qualification gates
+remain authoritative. Account preparation requires an explicit team configuration
+or opt-out and does not choose models or grant payment authority.
+
+This is a local candidate until the cross-service release and package publication
+gates pass. Local provider fixtures do not prove production provider consent.
+
 # CLI v0.8.13 / plugin v0.1.7
 
 Adds closed registered sandbox-tool discovery, installation, status polling,
