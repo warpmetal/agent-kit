@@ -135,6 +135,10 @@ export class WarpMetalClient {
     return this.request("GET", "/catalog");
   }
 
+  modelCatalog() {
+    return this.request("GET", "/agent-team-model-catalog");
+  }
+
   prepareOrder(body, idempotencyKey) {
     return this.request("POST", "/orders", { body, idempotencyKey });
   }

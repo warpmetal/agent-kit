@@ -62,7 +62,7 @@ integration.
 
 The repository also contains a skills-only WarpMetal plugin for the public
 Plugins Directory shared by Codex and ChatGPT. The plugin remains a separate
-artifact from the npm CLI and requires `warpmetal` CLI version 0.8.13 or newer.
+artifact from the npm CLI and requires `warpmetal` CLI version 0.9.0 or newer.
 
 To test the repository marketplace after the plugin lands on `main`:
 
@@ -84,9 +84,13 @@ the repo marketplace is only for development, testing, and direct distribution.
 ## First commands
 
 ```sh
+warpmetal login
+warpmetal auth status
 warpmetal health
 warpmetal catalog
+warpmetal models --auth-mode chatgpt_subscription
 warpmetal order prepare \
+  --account --without-agent-boxes \
   --plan agent \
   --hostname codex-workspace \
   --os '<exact name from warpmetal catalog>' \
@@ -94,11 +98,54 @@ warpmetal order prepare \
   --json
 ```
 
+`warpmetal login` starts WarpMetal account authorization before any SSH key or
+order configuration is needed. It opens the browser approval page by default;
+use `--no-browser` to print the page and user code without opening it. The
+default session requests `cli:read cli:write`; `--read-only` requests only
+`cli:read`. Check the current account with `warpmetal auth status` and revoke
+the CLI session with `warpmetal logout`.
+
+The CLI stores only its own rotating account session under the private
+WarpMetal state directory. Account sessions are separate from browser sessions,
+legacy order owner tokens and SSH credentials, and are bound to the exact
+Identity and account origins that issued them. `--identity-url` and
+`--account-url` accept explicit origins for testing or alternate deployments;
+credentials are never sent after an HTTP redirect or reused for other origins.
+If a refresh response is lost, the CLI clears the local session and requires a
+new login rather than risking reuse of a rotated credential. Logout always
+clears the matching local session, and reports when remote revocation could not
+be confirmed.
+
+Use `warpmetal account orders` and `warpmetal account devices` for your account's
+order history and active servers; add `--task <id>` or `--server <id>` for one
+item. `order prepare --account` binds the unpaid order to the signed-in account
+and uses its verified contact. It never issues an owner token. Login and account
+creation do not require SSH keys or order configuration.
+
+New account preparation defaults to Agent Boxes and an Agent team. Supply the
+selected team in `--runtime-file`; no provider or model is silently selected.
+Use `--without-team` for a single small persistent box, or
+`--without-agent-boxes` for a VPS without boxes. An explicit runtime file keeps
+its existing selections. `warpmetal models --json` supplies published model and
+authentication choices; server readiness checks still apply.
+
+Without `--account`, order preparation retains the existing owner-token
+workflow, including payment and SSH automation. This release adds account order
+preparation and inventory, not a new account payment or runtime-execution grant.
+The account scopes do not authorize charges, renewals, deletion or Fleet access.
+
+`warpmetal catalog` lists VPS plans. `warpmetal models` reads the separate,
+public Agent Teams model catalog. It never signs in to a model provider or
+creates an order. Use `--provider` or `--auth-mode api_key|chatgpt_subscription`
+to filter published entries; JSON preserves the catalog snapshot, provenance,
+freshness state and published authentication modes.
+
 The generated key defaults to
 `${WARPMETAL_HOME:-~/.config/warpmetal}/ssh/warpmetal-codex-workspace`. A
 collision receives a random suffix; existing keys are never overwritten. Once
 checkout returns `serverId`, the CLI binds that ID to the identity so
-`warpmetal server login` and `warpmetal runtime install` can select it without
+`warpmetal server login` is the distinct SSH challenge flow for one server.
+It and `warpmetal runtime install` can select the generated identity without
 an `--identity` flag. Use `--ssh-public-key-file` instead when supplying a
 user-managed public key.
 

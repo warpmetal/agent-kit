@@ -3,6 +3,7 @@
 ## Contents
 
 - Discovery
+- Account authentication
 - Purchase and provisioning
 - SSH identities
 - Renewal and notifications
@@ -17,10 +18,105 @@
 ```sh
 warpmetal health --json
 warpmetal catalog [--plan <planId>] --json
+warpmetal models [--provider <id>] [--auth-mode <api_key|chatgpt_subscription>] [--json]
 ```
+
+## Public model catalog
+
+`warpmetal models` performs a read-only `GET /agent-team-model-catalog` request.
+It preserves the published snapshot metadata, source provenance, freshness state
+and authentication modes. `--provider` and `--auth-mode` filter entries and
+remove recommendations whose published entry is no longer present. The command
+does not infer eligibility or contact a model provider. `catalog` remains the
+VPS plan catalog.
 
 `health` exits with code 3 when the service responds but purchasing is paused.
 The catalog remains useful for read-only discovery.
+
+## Account authentication
+
+```sh
+warpmetal login [--no-browser] [--read-only] --json
+warpmetal auth status --json
+warpmetal logout --json
+```
+
+`login` uses the public `warpmetal-customer-cli` device client. It requests
+`cli:read cli:write` by default or only `cli:read` with `--read-only`, prints the
+bounded verification page and user code to stderr, and opens that page unless
+`--no-browser` is present. Polling follows the server interval and treats
+pending, slow-down, denial, expiry and cancellation as distinct outcomes. JSON
+stdout contains only safe account identity and scope fields; access, refresh
+and device credentials are never output.
+
+The rotating CLI refresh family is independent of browser sessions, legacy
+owner tokens and SSH credentials. It is stored in an owner-only, atomic session
+file under the private WarpMetal state directory. Concurrent commands serialize
+refresh. If refresh completion is ambiguous, the saved session is cleared and a
+new login is required rather than replaying the old credential.
+
+Sessions are bound to the exact Identity and account origins. Defaults are
+`https://identity.warpmetal.com` and `https://warpmetal.com`; explicit
+`--identity-url` and `--account-url` values must be HTTPS origins (localhost may
+use HTTP). Redirects are refused, and credentials for one origin pair are never
+sent to another. `logout` attempts remote family revocation and always clears
+the matching local session, reporting whether revocation was confirmed.
+
+Account login does not grant server SSH access. `warpmetal server login` remains
+the separate, server-specific SSH challenge command.
+
+## Account orders and devices
+
+```sh
+warpmetal account orders [--task <taskId>] --json
+warpmetal account devices [--server <serverId>] --json
+warpmetal order prepare --account --without-agent-boxes \
+  --plan <planId> --hostname <name> --os '<exact catalog OS>' \
+  --generate-ssh-key [--idempotency-key <key>] --json
+```
+
+Reads require `cli:read`; unpaid preparation requires `cli:write`. Only these
+allowlisted operations are granted. Account scope never authorizes a payment,
+renewal, server deletion, credential change or runtime execution. Collections
+return the server's bounded page and `nextCursor`; order history is distinct from
+active devices and can include released or cancelled orders.
+
+Account mode signs in before checking order fields. It derives contact and
+ownership from the signed-in principal, rejects `--email`, uses the private
+account gateway, and records `ownershipMode: account` plus principal/origin in
+private local state without an owner token. Use the same idempotency key and
+unchanged payload to retry an ambiguous preparation. Do not retry a charge.
+Existing owner-token checkout commands do not become account payment commands.
+
+Boxes/team are selected by default for new account preparation: provide
+`--runtime-file` with your chosen team, `--without-team` for one persistent small
+`main` box, or `--without-agent-boxes` for no runtime. Explicit runtime files keep
+their box/team choices, and older scripts without `--account` retain their
+defaults. Server model/runtime readiness gates remain binding.
+
+The optional `teams` sibling of `sandboxes` uses the deployed team-v1 schema:
+
+```json
+{
+  "sandboxes": [{"name":"manager","size":"small"},{"name":"builder","size":"small"}],
+  "teams": {"version":1,"teams":[{
+    "name":"Build team",
+    "members":[
+      {"sandboxName":"manager","role":"manager","providerId":"openai"},
+      {"sandboxName":"builder","role":"worker","providerId":"anthropic"}
+    ],
+    "links":[{"from":"manager","to":"builder","capability":"task.delegate"}],
+    "startPolicy":"manual"
+  }]}
+}
+```
+
+Provider names in this example are preferences, not qualification proof. Optional
+`modelId` and `authMode` must reflect the selected published entry; omitted values
+mean choose later, never automatic credentials. A team has one manager and 2–8
+distinct declared boxes. Credentials, unknown fields, automatic start and
+cross-team links are rejected. Team/setup files are for order preparation;
+`sandbox create --file` accepts a sandbox batch only.
 
 ## Purchase and provisioning
 

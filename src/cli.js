@@ -10,12 +10,23 @@ import {
   rejectUnknownOptions,
   stringOption,
 } from "./args.js";
+import {
+  AccountGatewayClient,
+  accountSessionContext,
+  authenticatedAccountClient,
+} from "./account-gateway.js";
 import { WarpMetalClient } from "./api.js";
 import { connectionProfile, writeConnectionProfile } from "./connection.js";
 import { CliError, toErrorMessage } from "./errors.js";
 import { establishHostTrust } from "./host-trust.js";
 import { installSkill } from "./install-skill.js";
 import { installRuntime } from "./installer.js";
+import { openVerificationPage } from "./customer-auth.js";
+import {
+  filterModelCatalog,
+  modelCatalogHuman,
+  MODEL_AUTH_MODES,
+} from "./models.js";
 import {
   createPaymentRequestEnvelope,
   defaultPaymentPaths,
@@ -74,12 +85,19 @@ const COMMON_OPTIONS = ["base-url", "json", "state-dir", "help"];
 const HELP = `WarpMetal CLI ${VERSION}
 
 Usage:
+  warpmetal login [--no-browser] [--read-only] [--json]
+  warpmetal auth status [--json]
+  warpmetal account orders [--task <taskId>] [--json]
+  warpmetal account devices [--server <serverId>] [--json]
+  warpmetal logout [--json]
   warpmetal health [--json]
   warpmetal catalog [--plan <planId>] [--json]
+  warpmetal models [--provider <id>] [--auth-mode <api_key|chatgpt_subscription>] [--json]
   warpmetal order prepare --plan <planId> --hostname <name> --os <exact-name>
     (--generate-ssh-key [--ssh-key-name <name>] | --ssh-public-key-file <path>)
     [--runtime-file <path>] [--confirm TEMPORARY]
     [--email <address>] [--idempotency-key <key>]
+    [--account [--without-agent-boxes | --without-team]]
   warpmetal order status --task <taskId> [--wait] [--timeout-seconds <n>]
   warpmetal checkout challenge --task <taskId> [--request-envelope-out <path>]
   warpmetal checkout submit --task <taskId>
@@ -138,6 +156,8 @@ Usage:
 
 Global options:
   --base-url <url>       Override https://api.warpmetal.com
+  --identity-url <url>   Override https://identity.warpmetal.com for account auth
+  --account-url <url>    Override https://warpmetal.com for account requests
   --state-dir <path>     Override the private state directory
   --json                 Emit structured, secret-redacted JSON
   --help                 Show help
@@ -827,6 +847,204 @@ async function handleCatalog(client, options, { json, stdout }) {
   return 0;
 }
 
+async function handleModels(client, options, { json, stdout }) {
+  const provider = stringOption(options, "provider");
+  const authMode = stringOption(options, "auth-mode");
+  if (authMode !== undefined && !MODEL_AUTH_MODES.has(authMode)) {
+    throw new CliError(
+      "--auth-mode must be api_key or chatgpt_subscription.",
+      { exitCode: 2 },
+    );
+  }
+  const result = await client.modelCatalog();
+  const data = filterModelCatalog(result.data, { provider, authMode });
+  emit(stdout, data, json, modelCatalogHuman(data));
+  return 0;
+}
+
+function accountOptions(options, context, stateDirectory) {
+  return {
+    stateDirectory,
+    identityOrigin: stringOption(options, "identity-url"),
+    accountOrigin: stringOption(options, "account-url"),
+    fetchImpl: context.fetchImpl,
+  };
+}
+
+function publicAccountIdentity(value) {
+  if (
+    !value ||
+    typeof value.principalId !== "string" ||
+    typeof value.email !== "string" ||
+    typeof value.emailVerified !== "boolean" ||
+    !Array.isArray(value.scopes) ||
+    value.scopes.some((scope) => !["cli:read", "cli:write"].includes(scope))
+  ) {
+    throw new CliError("The account gateway returned an invalid identity response.", {
+      exitCode: 3,
+      code: "invalid_response",
+    });
+  }
+  return {
+    authenticated: true,
+    principalId: value.principalId,
+    email: value.email,
+    emailVerified: value.emailVerified,
+    scopes: value.scopes,
+    expiresAt:
+      typeof value.expiresAt === "string" ? value.expiresAt : undefined,
+  };
+}
+
+async function handleAccountLogin(options, context, stateDirectory) {
+  const readOnlyValue = options["read-only"];
+  if (readOnlyValue !== undefined && typeof readOnlyValue !== "boolean") {
+    throw new CliError("--read-only does not take a value.", { exitCode: 2 });
+  }
+  if (readOnlyValue === false) {
+    throw new CliError("Use --read-only to request a read-only session.", {
+      exitCode: 2,
+    });
+  }
+  if (options.browser === true) {
+    throw new CliError("Browser launch is automatic; use --no-browser to disable it.", {
+      exitCode: 2,
+    });
+  }
+  const account = accountSessionContext(
+    accountOptions(options, context, stateDirectory),
+  );
+  const scopes = readOnlyValue ? ["cli:read"] : ["cli:read", "cli:write"];
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once("SIGINT", cancel);
+  process.once("SIGTERM", cancel);
+  try {
+    const device = await account.auth.begin(scopes, {
+      signal: controller.signal,
+    });
+    writeLine(context.stderr, `Open ${device.verificationUriComplete}`);
+    writeLine(context.stderr, `Enter code: ${device.userCode}`);
+    if (options.browser !== false) {
+      openVerificationPage(device.verificationUriComplete, {
+        spawnImpl: context.spawnImpl,
+      });
+    }
+    const session = await account.auth.poll(device, {
+      signal: controller.signal,
+    });
+    const identity = publicAccountIdentity(
+      await new AccountGatewayClient({
+        accountOrigin: account.accountOrigin,
+        accessToken: session.accessToken,
+        fetchImpl: context.fetchImpl,
+      }).whoami(),
+    );
+    await account.store.withLock(async () => {
+      await account.store.write({
+        ...session,
+        createdAt: new Date().toISOString(),
+      });
+    });
+    emit(
+      context.stdout,
+      identity,
+      context.json,
+      `Authenticated as ${identity.email} (${identity.scopes.join(", ")}).`,
+    );
+    return 0;
+  } finally {
+    process.removeListener("SIGINT", cancel);
+    process.removeListener("SIGTERM", cancel);
+  }
+}
+
+async function handleAccountStatus(options, context, stateDirectory) {
+  const authenticated = await authenticatedAccountClient(
+    accountOptions(options, context, stateDirectory),
+  );
+  if (!authenticated) {
+    emit(
+      context.stdout,
+      { authenticated: false },
+      context.json,
+      "Not authenticated. Run warpmetal login.",
+    );
+    return 0;
+  }
+  const identity = publicAccountIdentity(await authenticated.client.whoami());
+  emit(
+    context.stdout,
+    identity,
+    context.json,
+    `Authenticated as ${identity.email} (${identity.scopes.join(", ")}).`,
+  );
+  return 0;
+}
+
+async function requireAccount(options, context, stateDirectory) {
+  const account = await authenticatedAccountClient(accountOptions(options, context, stateDirectory));
+  if (!account) {
+    throw new CliError("Sign in first with warpmetal login; no order details are needed to sign in.", { exitCode: 4 });
+  }
+  return account;
+}
+
+async function handleAccountInventory(kind, options, context, stateDirectory) {
+  const account = await requireAccount(options, context, stateDirectory);
+  const id = stringOption(options, kind === "orders" ? "task" : "server");
+  const data = kind === "orders"
+    ? await (id ? account.client.order(id) : account.client.orders())
+    : await (id ? account.client.device(id) : account.client.devices());
+  emit(context.stdout, data, context.json, JSON.stringify(data, null, 2));
+  return 0;
+}
+
+async function handleAccountLogout(options, context, stateDirectory) {
+  const account = accountSessionContext(
+    accountOptions(options, context, stateDirectory),
+  );
+  const outcome = await account.store.withLock(async () => {
+    const session = await account.store.read();
+    if (!session) {
+      return {
+        authenticated: false,
+        localSessionCleared: false,
+        remoteRevoked: false,
+        remoteStatus: "no_session",
+      };
+    }
+    let remoteRevoked = false;
+    let remoteError;
+    try {
+      await account.auth.revoke(session.refreshToken);
+      remoteRevoked = true;
+    } catch (error) {
+      remoteError = error?.code || "unavailable";
+    } finally {
+      await account.store.clear();
+    }
+    return {
+      authenticated: false,
+      localSessionCleared: true,
+      remoteRevoked,
+      remoteStatus: remoteRevoked ? "revoked" : "failed",
+      remoteError,
+    };
+  });
+  emit(
+    context.stdout,
+    outcome,
+    context.json,
+    outcome.remoteRevoked
+      ? "Logged out and revoked the remote session."
+      : outcome.remoteStatus === "no_session"
+        ? "No account session is stored for these origins."
+        : "Local session cleared, but remote revocation could not be confirmed.",
+  );
+  return outcome.remoteStatus === "failed" ? 3 : 0;
+}
+
 async function pathExists(path) {
   try {
     await stat(path);
@@ -898,6 +1116,20 @@ async function resolveServerIdentity(store, serverId, explicit) {
 }
 
 async function handlePrepareOrder(client, store, options, context) {
+  const accountMode = booleanOption(options, "account");
+  const account = accountMode ? await requireAccount(options, context, store.directory) : null;
+  const identity = account ? publicAccountIdentity(await account.client.whoami()) : null;
+  if (account && !account.session.scopes.includes("cli:write")) {
+    throw new CliError("This account session is read-only. Run warpmetal login to request order preparation.", { exitCode: 4 });
+  }
+  const withoutBoxes = booleanOption(options, "without-agent-boxes");
+  const withoutTeam = booleanOption(options, "without-team");
+  if (!account && (withoutBoxes || withoutTeam || options["identity-url"] || options["account-url"])) {
+    throw new CliError("Account options require --account. Existing owner-token preparation is unchanged.", { exitCode: 2 });
+  }
+  if (withoutBoxes && withoutTeam) {
+    throw new CliError("Use only one of --without-agent-boxes or --without-team.", { exitCode: 2 });
+  }
   const planId = stringOption(options, "plan", { required: true });
   const hostname = stringOption(options, "hostname", { required: true });
   const osName = stringOption(options, "os", { required: true });
@@ -910,10 +1142,16 @@ async function handlePrepareOrder(client, store, options, context) {
     );
   }
   const email = stringOption(options, "email");
+  if (account && email) throw new CliError("Account contact comes from your signed-in account; omit --email.", { exitCode: 2 });
   const runtimeFile = stringOption(options, "runtime-file");
+  if (runtimeFile && withoutBoxes) throw new CliError("--runtime-file conflicts with --without-agent-boxes.", { exitCode: 2 });
+  if (account && !runtimeFile && !withoutBoxes && !withoutTeam) {
+    throw new CliError("Agent Boxes and Agent team are enabled by default. Select your team in --runtime-file, or use --without-team / --without-agent-boxes.", { exitCode: 2 });
+  }
   const runtimeIntent = runtimeFile
     ? await readSandboxFile(runtimeFile)
-    : undefined;
+    : account && withoutTeam ? [{ name: "main", size: "small" }] : undefined;
+  if (withoutTeam && runtimeIntent?.teams) throw new CliError("--without-team conflicts with teams in --runtime-file.", { exitCode: 2 });
   const sandboxes = Array.isArray(runtimeIntent)
     ? runtimeIntent
     : runtimeIntent?.sandboxes;
@@ -969,14 +1207,22 @@ async function handlePrepareOrder(client, store, options, context) {
   }
   const key =
     stringOption(options, "idempotency-key") || idempotencyKey("order");
-  const response = await client.prepareOrder(request, key);
+  const response = account
+    ? { data: await account.client.prepareOrder(request, key) }
+    : await client.prepareOrder(request, key);
   const checkoutBody = JSON.stringify({ taskId: response.data.task.id });
   await store.savePreparedOrder(
     response.data,
     checkoutBody,
     selected.identity.identityId,
+    account ? { principalId: identity.principalId, accountOrigin: account.context.accountOrigin, identityOrigin: account.context.identityOrigin } : null,
   );
   const safe = safePreparedOrder(response.data, store.path);
+  if (account) {
+    safe.ownershipMode = "account";
+    safe.credential = { kind: "account_session", stored: true, printed: false };
+    safe.stateFile = store.path;
+  }
   if (runtimeIntent) {
     safe.agentRuntimeIntent = {
       sandboxes: sandboxes.map((sandbox) => ({
@@ -988,13 +1234,16 @@ async function handlePrepareOrder(client, store, options, context) {
     };
     if (!Array.isArray(runtimeIntent)) {
       safe.agentRuntimeIntent.setup = runtimeIntent.setup;
+      safe.agentRuntimeIntent.teams = runtimeIntent.teams;
     }
   }
   emit(
     context.stdout,
     safe,
     context.json,
-    `Prepared ${safe.task.id} for server ${safe.task.serverId}.\nRecovery credential saved to ${store.path} and not printed.`,
+    account
+      ? `Prepared ${safe.task.id} for your account. Ownership recorded in ${store.path}. No owner token was issued. Use warpmetal account orders --task ${safe.task.id} to view it.`
+      : `Prepared ${safe.task.id} for server ${safe.task.serverId}.\nRecovery credential saved to ${store.path} and not printed.`,
   );
   return 0;
 }
@@ -2431,7 +2680,13 @@ async function resolveCreateSandboxes(options) {
       exitCode: 2,
     });
   }
-  if (file) return readSandboxFile(file);
+  if (file) {
+    const intent = await readSandboxFile(file);
+    if (!Array.isArray(intent)) {
+      throw new CliError("Team and setup intents are supported only during order preparation; sandbox create accepts sandboxes only.", { exitCode: 2 });
+    }
+    return intent;
+  }
   return sandboxFromOptions({
     name: stringOption(options, "name", { required: true }),
     size: stringOption(options, "size", { required: true }),
@@ -3068,10 +3323,46 @@ async function dispatch(positionals, options, passthrough, context) {
     return handleAccessRemoveSsh(options, context);
   }
 
-  const baseUrl = stringOption(options, "base-url");
   const stateDir =
     stringOption(options, "state-dir") ||
     resolveStateDirectory({ env: context.env });
+  if (command === "login") {
+    rejectUnknownOptions(options, [
+      "base-url",
+      "json",
+      "help",
+      "state-dir",
+      "identity-url",
+      "account-url",
+      "browser",
+      "read-only",
+    ]);
+    return handleAccountLogin(options, context, stateDir);
+  }
+  if (command === "auth status") {
+    rejectUnknownOptions(options, [
+      "base-url",
+      "json",
+      "help",
+      "state-dir",
+      "identity-url",
+      "account-url",
+    ]);
+    return handleAccountStatus(options, context, stateDir);
+  }
+  if (command === "logout") {
+    rejectUnknownOptions(options, [
+      "base-url",
+      "json",
+      "help",
+      "state-dir",
+      "identity-url",
+      "account-url",
+    ]);
+    return handleAccountLogout(options, context, stateDir);
+  }
+
+  const baseUrl = stringOption(options, "base-url");
   const client = new WarpMetalClient({
     baseUrl: baseUrl || context.env.WARPMETAL_API_URL,
     fetchImpl: context.fetchImpl,
@@ -3085,9 +3376,21 @@ async function dispatch(positionals, options, passthrough, context) {
     case "catalog":
       rejectUnknownOptions(options, [...COMMON_OPTIONS, "plan"]);
       return handleCatalog(client, options, context);
+    case "account orders":
+    case "account devices":
+      rejectUnknownOptions(options, [...COMMON_OPTIONS, "identity-url", "account-url", command === "account orders" ? "task" : "server"]);
+      return handleAccountInventory(command === "account orders" ? "orders" : "devices", options, context, stateDir);
+    case "models":
+      rejectUnknownOptions(options, [...COMMON_OPTIONS, "provider", "auth-mode"]);
+      return handleModels(client, options, context);
     case "order prepare":
       rejectUnknownOptions(options, [
         ...COMMON_OPTIONS,
+        "account",
+        "identity-url",
+        "account-url",
+        "without-agent-boxes",
+        "without-team",
         "plan",
         "hostname",
         "os",

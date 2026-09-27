@@ -11,7 +11,7 @@ with ad hoc HTTP commands.
 
 ## Start safely
 
-1. Run `warpmetal --version` and require version `0.8.13` or newer for this
+1. Run `warpmetal --version` and require version `0.9.0` or newer for this
    plugin. If it is missing or older, explain the compatibility requirement,
    ask before installing or upgrading software, and use only the official npm
    package from `https://www.npmjs.com/package/warpmetal`.
@@ -44,7 +44,13 @@ Run:
 ```sh
 warpmetal health --json
 warpmetal catalog --json
+warpmetal models --json
 ```
+
+`catalog` is the live VPS plan catalog. `models` is the separate public Agent
+Teams model catalog; it makes one read-only request and never infers model
+availability, credentials, entitlement, or provider support. Filter only with
+published `--provider` or `--auth-mode api_key|chatgpt_subscription` values.
 
 Stop the current purchase if `purchasingReady` is false. In unattended
 scheduling, recheck after 60 seconds, then double the delay after each failed
