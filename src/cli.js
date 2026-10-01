@@ -16,6 +16,7 @@ import {
   authenticatedAccountClient,
 } from "./account-gateway.js";
 import { WarpMetalClient } from "./api.js";
+import { managementClient, managementMutations, readManagementInput } from "./agent-management.js";
 import { connectionProfile, writeConnectionProfile } from "./connection.js";
 import { CliError, toErrorMessage } from "./errors.js";
 import { establishHostTrust } from "./host-trust.js";
@@ -151,6 +152,31 @@ Usage:
   warpmetal tools install --server <serverId> --sandbox <sandboxId> --profile <profileId>
     [--idempotency-key <key>] [--wait] [--timeout-seconds <n>]
   warpmetal tools status --server <serverId> [--wait] [--timeout-seconds <n>]
+  warpmetal work list|sources|policy SERVER BOX [--json]
+  warpmetal work show|content|targets SERVER BOX WORK [--json]
+  warpmetal work create SERVER BOX --file <request.json>
+  warpmetal work update|enable|checkpoint|continue|restore|handoff SERVER BOX WORK --file <request.json>
+  warpmetal work status SERVER BOX WORK --kind <checkpoint|continue|restore|handoff>
+    (--request <requestId> | --operation <operationId>)
+  warpmetal work open SERVER BOX WORK [--connection-file <profile> --identity <sandbox-key> | --json]
+  warpmetal insights summary SERVER [--limit <n>] [--cursor <cursor>]
+  warpmetal insights status|list SERVER BOX [--json]
+  warpmetal insights enable|disable SERVER BOX --file <request.json>
+  warpmetal insights show SERVER BOX FINDING [--json]
+  warpmetal insights acknowledge|snooze|dismiss SERVER BOX FINDING --file <request.json>
+  warpmetal insights open SERVER BOX FINDING [--takeover <operationId>]
+    [--connection-file <profile> --identity <sandbox-key> | --json]
+  warpmetal insights manager settings SERVER BOX [--file <request.json>]
+  warpmetal insights manager activity SERVER BOX [--finding <findingId>]
+  warpmetal insights manager run SERVER BOX RUN
+  warpmetal insights manager target SERVER BOX FINDING
+  warpmetal insights manager recheck SERVER BOX FINDING --file <request.json>
+  warpmetal insights manager status SERVER BOX FINDING --request <requestId>
+  warpmetal insights takeover list SERVER BOX FINDING
+  warpmetal insights takeover SERVER BOX FINDING --file <request.json>
+  warpmetal insights takeover status SERVER BOX FINDING --operation <operationId>
+  warpmetal insights takeover resume SERVER BOX FINDING --operation <operationId> --file <request.json>
+  warpmetal insights review SERVER BOX RUN [--connection-file <profile> --identity <sandbox-key> | --json]
   warpmetal state list
   warpmetal agent install --target <codex|claude|all> [--scope <user|project>] [--force]
 
@@ -250,6 +276,18 @@ Sandbox SSH aliases:
     https://cursor.com/docs/cli/headless
     https://geminicli.com/docs/get-started/installation/
     https://geminicli.com/docs/cli/headless/
+
+Retained Work and Insights:
+  Use an existing server owner/SSH login. Mutations take a closed request JSON
+  file with its request ID and revision fences. Repeating the same saved intent
+  performs GET-only reconciliation. Ordinary output contains metadata; work
+  content deliberately returns private owner text. Pending operations exit 8,
+  conflicts/terminal failures exit 5. Accepted continuation or handoff means
+  task admission, not task completion.
+  open/review --json returns a fresh exact descriptor. Interactive attachment
+  requires a sandbox grant/profile and local OpenCode 2.0.14. It creates no
+  session or initial prompt. Manager review is read-only. Recommend mode cannot
+  automatically steer a worker; protected takeover and Resume are explicit.
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
@@ -3368,6 +3406,23 @@ async function dispatch(positionals, options, passthrough, context) {
     fetchImpl: context.fetchImpl,
   });
   const store = new StateStore(stateDir);
+
+  if (positionals[0] === "work" || positionals[0] === "insights") {
+    const scopedClient = managementClient({
+      baseUrl: baseUrl || context.env.WARPMETAL_API_URL,
+      fetchImpl: context.fetchImpl,
+    });
+    const services = {
+      client: scopedClient, store, context, requireServerToken, emit,
+      readInput: readManagementInput,
+      runMutation: managementMutations(stateDir, scopedClient.baseUrl),
+      openSessionHandoff: async (...args) => (await import("./session-handoff.js")).openSessionHandoff(...args),
+    };
+    if (positionals[0] === "work") {
+      return (await import("./agent-work.js")).handleWork(positionals, options, services);
+    }
+    return (await import("./agent-insights.js")).handleInsights(positionals, options, services);
+  }
 
   switch (command) {
     case "health":

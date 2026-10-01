@@ -2536,3 +2536,20 @@ test("refill deadlines remain valid after a server term has expired", () => {
     "2026-08-30T12:00:00.000Z",
   );
 });
+
+test("agent management commands require existing scoped server authentication", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-management-auth-"));
+  for (const command of [["work", "list"], ["insights", "list"]]) {
+    const stdout = capture();
+    const stderr = capture();
+    let requests = 0;
+    const result = await main([...command, "srv_example0001", "sbx_example0001", "--state-dir", directory, "--json"], {
+      stdout: stdout.stream, stderr: stderr.stream, env: {},
+      fetchImpl: async () => { requests += 1; throw new Error("unexpected network"); },
+    });
+    assert.equal(result, 4, stderr.value());
+    assert.equal(requests, 0);
+    assert.equal(stdout.value(), "");
+    assert.match(stderr.value(), /server login/);
+  }
+});
