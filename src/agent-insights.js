@@ -339,23 +339,13 @@ async function resumeTakeover(serverId, sandboxId, findingId, predecessorId, ser
   return value;
 }
 
-function sameNullableTask(target, task) {
-  return target.taskId === (task?.taskId ?? null) && target.taskAttempt === (task?.taskAttempt ?? null);
-}
-
-function sameNullableWork(target, work) {
-  return target.workId === (work?.workId ?? null) && target.workRevision === (work?.expectedRevision ?? null) &&
-    target.bindingId === (work?.bindingId ?? null) && target.bindingRevision === (work?.bindingRevision ?? null);
-}
-
 function takeoverMatchesHandoff(takeover, handoff) {
   const i = handoff.identity, s = handoff.source, source = takeover.source, target = takeover.target;
   return i.teamId === target.teamId && i.memberId === target.memberId &&
     i.sandboxGeneration === source.sandboxGeneration && i.serviceRegistrationId === source.serviceRegistrationId &&
     i.serviceGeneration === source.serviceGeneration && i.workspaceEpoch === source.workspaceEpoch &&
     i.profileRevision === source.profileRevision && i.instructionRevision === source.instructionRevision &&
-    s.registeredSourceId === source.registeredSourceId && s.nativeSessionId === source.nativeSessionId &&
-    sameNullableTask(target, handoff.task) && sameNullableWork(target, handoff.work);
+    s.registeredSourceId === source.registeredSourceId && s.nativeSessionId === source.nativeSessionId;
 }
 
 async function verifiedTakeover(serverId, sandboxId, findingId, operationId, services, options, token) {
@@ -379,6 +369,14 @@ async function verifiedTakeover(serverId, sandboxId, findingId, operationId, ser
     projectManager(value, "takeoverList", { findingId }));
   if (listing.takeovers.some(row => row.predecessorOperationId === operationId)) {
     fail("The requested Takeover has been superseded by Resume.", 5, "manager_takeover_stale");
+  }
+  const finding = projected(await request(services, "GET", `${ownerBase(serverId, sandboxId)}/${segment(findingId)}`, token), value =>
+    projectInsightDetail(value, findingId)).finding;
+  const current = projected(await request(services, "GET", `${ownerBase(serverId, sandboxId)}/${segment(findingId)}/manager-target`, token), value =>
+    projectManager(value, "managerTarget", { findingId }));
+  // The current manager target owns the complete Task and Work authority.
+  if (current.findingRevision !== finding.revision || !same(current.source, takeover.source) || !same(current.target, takeover.target)) {
+    fail("The requested Takeover no longer matches the current finding target.", 5, "manager_takeover_stale");
   }
   return takeover;
 }

@@ -178,18 +178,30 @@ function exactTakeoverHandoff(takeover) {
   identity.instructionRevision = takeover.source.instructionRevision;
   source.registeredSourceId = takeover.source.registeredSourceId;
   source.nativeSessionId = takeover.source.nativeSessionId;
-  envelope.handoff.task = {
-    taskId: takeover.target.taskId,
-    taskAttempt: takeover.target.taskAttempt,
-  };
+  envelope.handoff.task = null;
+  envelope.handoff.work = null;
   return envelope;
 }
 
 test("Insights CLI reads only scoped sanitized metadata and exact existing sessions", async () => {
   const directory = await mkdtemp(join(tmpdir(), "warpmetal-insights-read-"));
   const stateDirectory = await fixtureState(directory);
-  const exactHandoff = exactTakeoverHandoff(managerWire.takeoverReady);
-  const superseded = { ...managerWire.takeoverReady, state: "superseded" };
+  const takeover = structuredClone(managerWire.takeoverReady);
+  Object.assign(takeover.target, {
+    workId: "work_insightstakeover0001", workRevision: 2,
+    bindingId: "binding_insightstakeover0001", bindingRevision: 1,
+  });
+  const scopedFinding = {
+    ...finding, registeredSourceId: takeover.source.registeredSourceId,
+    workspaceEpoch: takeover.source.workspaceEpoch, nativeSessionId: takeover.source.nativeSessionId,
+    serviceGeneration: takeover.source.serviceGeneration,
+  };
+  const exactHandoff = exactTakeoverHandoff(takeover);
+  const currentTarget = {
+    ...structuredClone(managerWire.managerTarget), findingRevision: scopedFinding.revision,
+    source: structuredClone(takeover.source), target: structuredClone(takeover.target),
+  };
+  const superseded = { ...takeover, state: "superseded" };
   const service = await loopback(async ({ method, path, query, token }) => {
     assert.equal(token, `Bearer ${OWNER_TOKEN}`);
     assert.equal(method, "GET", `read path unexpectedly mutated: ${method} ${path}`);
@@ -219,25 +231,25 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
     if (path === `/servers/${OPEN_SERVER}/sandboxes/${OPEN_BOX}/insights`) {
       assert.equal(
         query,
-        `?limit=1&state=open&session=${finding.nativeSessionId}&severity=warning&attention=unacknowledged&rule=${encodeURIComponent(finding.ruleId)}&recentHours=24`,
+        `?limit=1&state=open&session=${scopedFinding.nativeSessionId}&severity=warning&attention=unacknowledged&rule=${encodeURIComponent(finding.ruleId)}&recentHours=24`,
       );
-      return response(200, { settings, findings: [finding], nextCursor: null });
+      return response(200, { settings, findings: [scopedFinding], nextCursor: null });
     }
     if (path.endsWith("/finding_expanded0001")) {
       return response(200, { finding: { ...finding, findingId: "finding_expanded0001", privatePrompt: "DO-NOT-PRINT-private-prompt" } });
     }
     if (path === `/servers/${OPEN_SERVER}/sandboxes/${OPEN_BOX}/insights/${FINDING}`) {
-      return response(200, { finding });
+      return response(200, { finding: scopedFinding });
     }
     if (path === `/servers/${OPEN_SERVER}/sandboxes/${OPEN_BOX}/insights/${FINDING}/handoff`) {
       return response(200, exactHandoff);
     }
     if (path.endsWith("/takeovers/takeover_managertest0001")) {
-      return response(200, managerWire.takeoverReady);
+      return response(200, takeover);
     }
     if (path.endsWith(`/${FINDING}/takeovers`)) {
       assert.equal(query, "?limit=100");
-      return response(200, { takeovers: [managerWire.takeoverReady], nextCursor: null });
+      return response(200, { takeovers: [takeover], nextCursor: null });
     }
     if (path.endsWith("/takeovers/takeover_superseded0001")) {
       return response(200, { ...superseded, operationId: "takeover_superseded0001" });
@@ -246,9 +258,9 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
       return response(200, {
         ...managerWire.appliedPolicy,
         sandboxId: OPEN_BOX,
-        revision: managerWire.takeoverReady.monitorPolicy.desiredRevision,
+        revision: takeover.monitorPolicy.desiredRevision,
         mode: "off",
-        appliedRevision: managerWire.takeoverReady.monitorPolicy.appliedRevision,
+        appliedRevision: takeover.monitorPolicy.appliedRevision,
         status: "applied",
         authorizationExpiresAt: null,
       });
@@ -267,7 +279,7 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
       return response(200, managerWire.managerSessionHandoff);
     }
     if (path.endsWith(`/${FINDING}/manager-target`)) {
-      return response(200, managerWire.managerTarget);
+      return response(200, path.includes(`/sandboxes/${OPEN_BOX}/`) ? currentTarget : managerWire.managerTarget);
     }
     return response(404, { error: { code: "not_found", message: "private upstream detail" } });
   });
@@ -276,7 +288,7 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
     const commands = [
       [0, "insights", "summary", OPEN_SERVER, "--limit", "1", "--cursor", "sbx_cursor0001"],
       [0, "insights", "status", OPEN_SERVER, OPEN_BOX],
-      [0, "insights", "list", OPEN_SERVER, OPEN_BOX, "--limit", "1", "--state", "open", "--session", finding.nativeSessionId, "--severity", "warning", "--attention", "unacknowledged", "--rule", finding.ruleId, "--recent-hours", "24"],
+      [0, "insights", "list", OPEN_SERVER, OPEN_BOX, "--limit", "1", "--state", "open", "--session", scopedFinding.nativeSessionId, "--severity", "warning", "--attention", "unacknowledged", "--rule", finding.ruleId, "--recent-hours", "24"],
       [0, "insights", "show", OPEN_SERVER, OPEN_BOX, FINDING],
       [8, "insights", "manager", "settings", MANAGER_SERVER, MANAGER_BOX],
       [0, "insights", "manager", "activity", MANAGER_SERVER, MANAGER_BOX, "--limit", "2", "--finding", FINDING],
@@ -299,6 +311,22 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
     let result = await run(["insights", "open", OPEN_SERVER, OPEN_BOX, FINDING, "--takeover", "takeover_superseded0001"]);
     assert.equal(result.code, 5, result.stderr);
     assert.equal(service.requests.length, beforeSuperseded + 1, "superseded pause must fail before handoff lookup");
+    const beforeStaleTarget = service.requests.length;
+    currentTarget.target.workRevision += 1;
+    currentTarget.target.bindingRevision += 1;
+    result = await run(["insights", "open", OPEN_SERVER, OPEN_BOX, FINDING, "--takeover", takeover.operationId]);
+    assert.equal(result.code, 5, result.stderr);
+    assert.match(result.stderr, /manager_takeover_stale/);
+    assert.ok(service.requests.slice(beforeStaleTarget).some(row => row.path.endsWith("/manager-target")),
+      "current Work authority must be checked through the manager-target HTTP boundary");
+    assert.ok(service.requests.slice(beforeStaleTarget).every(row => !row.path.endsWith("/handoff")),
+      "stale current Work/binding authority must fail before session lookup or launch");
+    currentTarget.target = structuredClone(takeover.target);
+    exactHandoff.handoff.source.nativeSessionId = "ses_changedtakeover0001";
+    result = await run(["insights", "open", OPEN_SERVER, OPEN_BOX, FINDING, "--takeover", takeover.operationId]);
+    assert.equal(result.code, 5, result.stderr);
+    assert.match(result.stderr, /manager_takeover_stale/);
+    exactHandoff.handoff.source.nativeSessionId = takeover.source.nativeSessionId;
     const beforeInvalid = service.requests.length;
     result = await run(["insights", "show", OPEN_SERVER, OPEN_BOX, "finding_expanded0001"]);
     assert.equal(result.code, 3, result.stderr);
