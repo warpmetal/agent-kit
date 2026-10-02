@@ -4,9 +4,9 @@
     "worker/account/work.ts": "e4176707a30848118bd44d1c369fc4303a267300fc981560d58c618b279ce516",
     "worker/account/work-handoff.ts": "d89273eeab925968f757e6458542681d88356a494e6fc7d7af800193c371fb3d",
     "worker/account/insights.ts": "826eb08f9496415b408fe943d9eec33a6c8480a52474df76c118f471f6d42d1f",
-    "worker/account/manager.ts": "2f97f5d43411ef68208cd0a9b001416d535ae51e6b14cfd0a3164eb39d72a787",
+    "worker/account/manager.ts": "d110c7399915f7c1fcf42403e82570271b4a4b6b71ba4c4f42c35a098145130a",
     "worker/account/session-handoff.ts": "d2bc3e8fc85cc686e4eba1fe539e18d5f1c8c2c832667b321b305fa0c8421396",
     "worker/account/http.ts#isPlainObject": "45a498e37caa3c89d198945a127cf050b9c11712c0a1ca050fac83a9b60c34b2",
-    "backend/contracts/agent-manager-control-v1.schema.json": "58ccce9f3324c13fb6cfa0cfe6d73fbbdb9d7222892541dc00e45547904ab4fb"
+    "backend/contracts/agent-manager-control-v1.schema.json": "5619f45404d1fbf5366c8ee76201f61cc33178c8a8e6506a1afe63708a1ac0cb"
   }
 }

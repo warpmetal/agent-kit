@@ -203,6 +203,8 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
   };
   const superseded = { ...takeover, state: "superseded" };
   let currentManagerRun = structuredClone(managerWire.automaticReportResponse);
+  let activityValue = managerWire.activityList;
+  let managerPolicyValue = managerWire.appliedPolicy;
   const service = await loopback(async ({ method, path, query, token }) => {
     assert.equal(token, `Bearer ${OWNER_TOKEN}`);
     assert.equal(method, "GET", `read path unexpectedly mutated: ${method} ${path}`);
@@ -267,11 +269,11 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
       });
     }
     if (path === `/servers/${MANAGER_SERVER}/sandboxes/${MANAGER_BOX}/insights/manager/settings`) {
-      return response(200, managerWire.appliedPolicy);
+      return response(200, managerPolicyValue);
     }
     if (path === `/servers/${MANAGER_SERVER}/sandboxes/${MANAGER_BOX}/insights/manager/activity`) {
       assert.equal(query, `?limit=2&findingId=${FINDING}`);
-      return response(200, managerWire.activityList);
+      return response(200, activityValue);
     }
     if (path.endsWith(`/manager/activity/${managerWire.automaticReportResponse.runId}`)) {
       return response(200, currentManagerRun);
@@ -319,6 +321,31 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
     assert.equal(noAction.code, 0, noAction.stderr);
     assert.deepEqual(JSON.parse(noAction.stdout), currentManagerRun);
     assert.equal(noAction.stderr, "");
+
+    // 0.9.2: negotiated guidance metadata, awaited Off receipt, explicit auto capability.
+    activityValue = managerWire.guidanceActivityList;
+    let guidanceResult = await run(["insights", "manager", "activity", MANAGER_SERVER, MANAGER_BOX, "--limit", "2", "--finding", FINDING, "--json"]);
+    assert.equal(guidanceResult.code, 0, guidanceResult.stderr);
+    const guidanceRun = JSON.parse(guidanceResult.stdout).runs[0];
+    assert.equal(guidanceRun.guidance.state, "available_to_worker");
+    assert.deepEqual(Object.keys(guidanceRun.guidance).sort(), [
+      "admittedAt", "availableAt", "bindingDigest", "formatVersion", "guardId", "guidanceDigest",
+      "logCursor", "observedAt", "pendingInputId", "receiptDigest", "refusalCode", "reservationId",
+      "revision", "runId", "sandboxId", "settledAt", "state",
+    ]);
+    assert.equal(guidanceRun.guidance.admittedAt, "2026-10-02T15:55:00.030Z");
+    activityValue = managerWire.activityList;
+
+    managerPolicyValue = managerWire.awaitingGuidancePolicy;
+    const awaitedResult = await run(["insights", "manager", "settings", MANAGER_SERVER, MANAGER_BOX, "--json"]);
+    assert.equal(awaitedResult.code, 5, awaitedResult.stderr);
+    const awaitedOff = JSON.parse(awaitedResult.stdout);
+    assert.equal(awaitedOff.status, "awaiting_guidance");
+    assert.equal(awaitedOff.appliedRevision, null);
+    assert.equal(awaitedOff.autoSteerPolicy.available, true);
+    assert.equal(awaitedOff.autoSteerPolicy.reason, null);
+    assert.equal(awaitedOff.autoSteerPolicy.qualifiedTuple.customNativeVersion, "2.0.14-wm.1");
+    managerPolicyValue = managerWire.appliedPolicy;
     const beforeSuperseded = service.requests.length;
     let result = await run(["insights", "open", OPEN_SERVER, OPEN_BOX, FINDING, "--takeover", "takeover_superseded0001"]);
     assert.equal(result.code, 5, result.stderr);
@@ -588,6 +615,7 @@ test("Insights mutations are closed, scoped, durable and recover with GET only",
     assert.equal(result.code, 2, result.stderr);
     assert.equal(service.requests.length, beforeInvalid, "invalid mutation files must fail before network");
     assert.doesNotMatch(`${result.stdout}${result.stderr}`, /owner-insights-private-token|private upstream detail/);
+
   } finally {
     await service.close();
   }
@@ -595,5 +623,5 @@ test("Insights mutations are closed, scoped, durable and recover with GET only",
 
 test("packaged manager wire fixture is copied unchanged", async () => {
   const bytes = await readFile(new URL("fixtures/agent-manager-control-v1.backend-wire.fixture.json", import.meta.url));
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), "facb56c61ae0fe00aa92a6979306ef9f862532ac702436aedb6741b8191fc018");
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), "56c171b125a7d4d5e27f90aba66e9f5d966cd723b2c08aa60e00c5fc08f00383");
 });
