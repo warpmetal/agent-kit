@@ -1,6 +1,6 @@
 # Agent Insights CLI contract
 
-Status: implemented in the reviewed CLI 0.9.0 package. Commands below use
+Status: implemented in the reviewed CLI 0.9.1 candidate; publication and deployed qualification remain pending. Commands below use
 the closed, versioned owner contracts in `src/contracts/`; historical
 qualification evidence is retained separately from this source checkpoint.
 
@@ -119,6 +119,5 @@ responses fail closed and are never printed. Input files are capped at the
 shared mutation limit and raw provider text, credentials, prompts and paths do
 not appear in output.
 
-Accepted/pending work exits 8, terminal success exits 0, and terminal failure
-exits 5. Authentication failures retain exit 4, request/transport/contract
+Accepted/pending work exits 8. A terminal recommendation or `no_action` exits 0; `no_action` preserves its actual closed state and safe outcome instead of claiming a recommendation. Terminal failures exit 5. A completed review that requires owner attention retains `needs_owner`; opening its exact valid proposal-bearing session remains read-only. Authentication failures retain exit 4, request/transport/contract
 failures retain the shared CLI codes, and syntax/input errors exit 2.

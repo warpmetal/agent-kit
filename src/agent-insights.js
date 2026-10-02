@@ -85,7 +85,7 @@ function policyExit(value) {
 
 function runExit(value) {
   return ["reserved", "reviewing"].includes(value.state) ? 8
-    : ["recommended", "needs_owner"].includes(value.state) ? 0 : 5;
+    : ["recommended", "no_action", "needs_owner"].includes(value.state) ? 0 : 5;
 }
 
 function takeoverExit(value) {

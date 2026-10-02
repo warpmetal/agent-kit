@@ -202,6 +202,7 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
     source: structuredClone(takeover.source), target: structuredClone(takeover.target),
   };
   const superseded = { ...takeover, state: "superseded" };
+  let currentManagerRun = structuredClone(managerWire.automaticReportResponse);
   const service = await loopback(async ({ method, path, query, token }) => {
     assert.equal(token, `Bearer ${OWNER_TOKEN}`);
     assert.equal(method, "GET", `read path unexpectedly mutated: ${method} ${path}`);
@@ -273,7 +274,7 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
       return response(200, managerWire.activityList);
     }
     if (path.endsWith(`/manager/activity/${managerWire.automaticReportResponse.runId}`)) {
-      return response(200, managerWire.automaticReportResponse);
+      return response(200, currentManagerRun);
     }
     if (path.endsWith(`/manager/activity/${managerWire.automaticReportResponse.runId}/session-handoff`)) {
       return response(200, managerWire.managerSessionHandoff);
@@ -307,6 +308,17 @@ test("Insights CLI reads only scoped sanitized metadata and exact existing sessi
       if (command[1] === "open") assert.deepEqual(JSON.parse(result.stdout), exactHandoff);
       if (command[1] === "review") assert.deepEqual(JSON.parse(result.stdout), managerWire.managerSessionHandoff);
     }
+    // The canonical terminal result must survive the ordinary CLI process and
+    // strict owner-response decoder without becoming a recommendation/failure.
+    currentManagerRun = {
+      ...currentManagerRun, state: "no_action", rationaleCode: "no_safe_action",
+    };
+    const noAction = await run([
+      "insights", "manager", "run", MANAGER_SERVER, MANAGER_BOX, currentManagerRun.runId,
+    ]);
+    assert.equal(noAction.code, 0, noAction.stderr);
+    assert.deepEqual(JSON.parse(noAction.stdout), currentManagerRun);
+    assert.equal(noAction.stderr, "");
     const beforeSuperseded = service.requests.length;
     let result = await run(["insights", "open", OPEN_SERVER, OPEN_BOX, FINDING, "--takeover", "takeover_superseded0001"]);
     assert.equal(result.code, 5, result.stderr);
