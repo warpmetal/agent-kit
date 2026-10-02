@@ -32,6 +32,7 @@
     "takeoverReport"
   ],
   "$defs": {
+    "managerMode": {"type": "string", "enum": ["off", "recommend", "auto_steer"]},
     "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{3,159}$"},
     "providerId": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
     "modelId": {"type": "string", "pattern": "^(?!.*://)[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$"},
@@ -162,7 +163,7 @@
         "version": {"const": 1},
         "requestId": {"$ref": "#/$defs/id"},
         "expectedRevision": {"type": "integer", "minimum": 1},
-        "mode": {"type": "string", "enum": ["off", "recommend", "auto_steer"]},
+        "mode": {"$ref": "#/$defs/managerMode"},
         "allowedRules": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/rule"}},
         "dailyRunLimit": {"type": "integer", "minimum": 0, "maximum": 30},
         "dailyInputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 480000},
@@ -178,7 +179,7 @@
         "formatVersion": {"const": 1},
         "sandboxId": {"$ref": "#/$defs/id"},
         "revision": {"type": "integer", "minimum": 1},
-        "mode": {"type": "string", "enum": ["off", "recommend", "auto_steer"]},
+        "mode": {"$ref": "#/$defs/managerMode"},
         "allowedRules": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/rule"}},
         "dailyRunLimit": {"type": "integer", "minimum": 0, "maximum": 30},
         "dailyInputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 480000},
@@ -365,14 +366,14 @@
     },
     "resumeRequest": {
       "type": "object", "additionalProperties": false,
-      "properties": {"version": {"const": 1}, "resumeOperationId": {"$ref": "#/$defs/id"}, "requestId": {"$ref": "#/$defs/id"}, "action": {"const": "resume_manager_and_release_member"}, "expectedTakeoverRevision": {"type": "integer", "minimum": 1}, "expectedPolicyRevision": {"type": "integer", "minimum": 1}, "expectedHoldRevision": {"type": "integer", "minimum": 1}, "restoreMode": {"type": "string", "enum": ["off", "recommend"]}, "source": {"$ref": "#/$defs/source"}, "target": {"$ref": "#/$defs/target"}},
+      "properties": {"version": {"const": 1}, "resumeOperationId": {"$ref": "#/$defs/id"}, "requestId": {"$ref": "#/$defs/id"}, "action": {"const": "resume_manager_and_release_member"}, "expectedTakeoverRevision": {"type": "integer", "minimum": 1}, "expectedPolicyRevision": {"type": "integer", "minimum": 1}, "expectedHoldRevision": {"type": "integer", "minimum": 1}, "restoreMode": {"$ref": "#/$defs/managerMode"}, "source": {"$ref": "#/$defs/source"}, "target": {"$ref": "#/$defs/target"}},
       "required": ["version", "resumeOperationId", "requestId", "action", "expectedTakeoverRevision", "expectedPolicyRevision", "expectedHoldRevision", "restoreMode", "source", "target"]
     },
     "takeover": {
       "type": "object", "additionalProperties": false,
       "properties": {
         "formatVersion": {"const": 1}, "operationId": {"$ref": "#/$defs/id"}, "predecessorOperationId": {"oneOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]}, "requestId": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1}, "action": {"type": "string", "enum": ["pause_manager_and_hold_member", "resume_manager_and_release_member"]}, "state": {"type": "string", "enum": ["awaiting_runtime", "ready", "unsettled", "superseded", "failed", "resumed"]}, "findingId": {"$ref": "#/$defs/id"}, "source": {"$ref": "#/$defs/source"}, "target": {"$ref": "#/$defs/target"},
-        "monitorPolicy": {"type": "object", "additionalProperties": false, "properties": {"desiredMode": {"type": "string", "enum": ["off", "recommend"]}, "desiredRevision": {"type": "integer", "minimum": 1}, "appliedRevision": {"type": ["integer", "null"], "minimum": 1}}, "required": ["desiredMode", "desiredRevision", "appliedRevision"]},
+        "monitorPolicy": {"type": "object", "additionalProperties": false, "properties": {"desiredMode": {"$ref": "#/$defs/managerMode"}, "desiredRevision": {"type": "integer", "minimum": 1}, "appliedRevision": {"type": ["integer", "null"], "minimum": 1}}, "required": ["desiredMode", "desiredRevision", "appliedRevision"]},
         "memberHold": {"type": "object", "additionalProperties": false, "properties": {"holdId": {"$ref": "#/$defs/id"}, "desiredState": {"type": "string", "enum": ["active", "released"]}, "desiredRevision": {"type": "integer", "minimum": 1}, "brokerApplied": {"type": "boolean"}, "nodeAppliedRevision": {"type": ["integer", "null"], "minimum": 1}}, "required": ["holdId", "desiredState", "desiredRevision", "brokerApplied", "nodeAppliedRevision"]},
         "pendingInput": {"type": "object", "additionalProperties": false, "properties": {"state": {"type": "string", "enum": ["awaiting_runtime", "none_pending", "canceled", "already_available_to_worker", "unknown"]}, "alreadyConsumed": {"type": "boolean"}}, "required": ["state", "alreadyConsumed"]},
         "handoff": {"type": "object", "additionalProperties": false, "properties": {"capability": {"type": "string", "enum": ["exact_session", "inspection_only", "unavailable"]}, "reason": {"$ref": "#/$defs/capabilityReason"}}, "required": ["capability", "reason"]},
@@ -387,7 +388,7 @@
     },
     "policyManifest": {
       "type": "object", "additionalProperties": false,
-      "properties": {"formatVersion": {"const": 1}, "sandboxId": {"$ref": "#/$defs/id"}, "sandboxGeneration": {"type": "integer", "minimum": 1}, "policyRevision": {"type": "integer", "minimum": 1}, "mode": {"type": "string", "enum": ["off", "recommend", "auto_steer"]}, "allowedRules": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/rule"}}, "dailyRunLimit": {"type": "integer", "minimum": 0, "maximum": 30}, "dailyInputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 480000}, "dailyOutputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 60000}, "effectiveLimits": {"$ref": "#/$defs/effectiveLimits"}, "managerProfile": {"$ref": "#/$defs/managerProfile"}, "validUntil": {"type": "string", "format": "date-time"}, "runGeneration": {"type": "integer", "minimum": 1}, "autoSteerAvailable": {"type": "boolean"}},
+      "properties": {"formatVersion": {"const": 1}, "sandboxId": {"$ref": "#/$defs/id"}, "sandboxGeneration": {"type": "integer", "minimum": 1}, "policyRevision": {"type": "integer", "minimum": 1}, "mode": {"$ref": "#/$defs/managerMode"}, "allowedRules": {"type": "array", "maxItems": 4, "items": {"$ref": "#/$defs/rule"}}, "dailyRunLimit": {"type": "integer", "minimum": 0, "maximum": 30}, "dailyInputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 480000}, "dailyOutputTokenLimit": {"type": "integer", "minimum": 0, "maximum": 60000}, "effectiveLimits": {"$ref": "#/$defs/effectiveLimits"}, "managerProfile": {"$ref": "#/$defs/managerProfile"}, "validUntil": {"type": "string", "format": "date-time"}, "runGeneration": {"type": "integer", "minimum": 1}, "autoSteerAvailable": {"type": "boolean"}},
       "required": ["formatVersion", "sandboxId", "sandboxGeneration", "policyRevision", "mode", "allowedRules", "dailyRunLimit", "dailyInputTokenLimit", "dailyOutputTokenLimit", "effectiveLimits", "managerProfile", "validUntil", "runGeneration", "autoSteerAvailable"]
     },
     "policyReport": {

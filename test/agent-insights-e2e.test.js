@@ -625,3 +625,136 @@ test("packaged manager wire fixture is copied unchanged", async () => {
   const bytes = await readFile(new URL("fixtures/agent-manager-control-v1.backend-wire.fixture.json", import.meta.url));
   assert.equal(createHash("sha256").update(bytes).digest("hex"), "56c171b125a7d4d5e27f90aba66e9f5d966cd723b2c08aa60e00c5fc08f00383");
 });
+
+
+test("qualified AutoResume journeys accept auto_steer and refuse unknown or malformed receipts", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-insights-autoresume-"));
+  const stateDirectory = await fixtureState(directory);
+  const predecessorId = "takeover_autoresume0001";
+  const predecessorBase = structuredClone(managerWire.takeoverReady);
+  predecessorBase.operationId = predecessorId;
+  let scenario = {
+    mode: "auto_steer",
+    resumeOperationId: "resume_autoresume0001",
+    requestId: "req_autoresume0001",
+    predecessor: predecessorBase,
+    malformed: false,
+    unqualified: false,
+  };
+  const qualifiedBody = () => {
+    const predecessor = scenario.predecessor;
+    return {
+      ...managerContract.resumeRequest,
+      resumeOperationId: scenario.resumeOperationId,
+      requestId: scenario.requestId,
+      expectedTakeoverRevision: predecessor.revision,
+      expectedPolicyRevision: predecessor.monitorPolicy.desiredRevision,
+      expectedHoldRevision: predecessor.memberHold.desiredRevision,
+      restoreMode: scenario.mode,
+      source: structuredClone(predecessor.source),
+      target: structuredClone(predecessor.target),
+    };
+  };
+  const qualifiedReceipt = () => {
+    const body = qualifiedBody();
+    const predecessor = scenario.predecessor;
+    return {
+      ...structuredClone(managerWire.resumeAwaiting),
+      operationId: body.resumeOperationId,
+      requestId: body.requestId,
+      predecessorOperationId: predecessorId,
+      action: "resume_manager_and_release_member",
+      revision: 1,
+      source: structuredClone(body.source),
+      target: structuredClone(body.target),
+      monitorPolicy: {
+        ...managerWire.resumeAwaiting.monitorPolicy,
+        desiredMode: scenario.malformed ? "recommend" : body.restoreMode,
+        desiredRevision: body.expectedPolicyRevision + 1,
+        appliedRevision: null,
+      },
+      memberHold: {
+        ...managerWire.resumeAwaiting.memberHold,
+        holdId: predecessor.memberHold.holdId,
+        desiredState: "released",
+        desiredRevision: body.expectedHoldRevision + 1,
+        brokerApplied: true,
+        nodeAppliedRevision: null,
+      },
+      state: "awaiting_runtime",
+    };
+  };
+  await writeFile(join(directory, "resume.json"), JSON.stringify(qualifiedBody()));
+  const service = await loopback(async ({ method, path, idempotencyKey, body }) => {
+    if (path.endsWith(`/${FINDING}/takeovers/${predecessorId}`) && method === "GET") {
+      return response(200, scenario.predecessor);
+    }
+    if (path.endsWith(`/${FINDING}/takeovers/${predecessorId}/resume`) && method === "POST") {
+      assert.equal(idempotencyKey, scenario.requestId);
+      assert.equal(body.restoreMode, scenario.mode);
+      if (scenario.unqualified) {
+        return response(409, { error: { code: "manager_capability_unavailable", message: "private backend detail" } });
+      }
+      return response(202, qualifiedReceipt());
+    }
+    if (path.endsWith(`/${FINDING}/takeovers/${scenario.resumeOperationId}`) && method === "GET") {
+      return response(200, qualifiedReceipt());
+    }
+    return response(404, { error: { code: "not_found", message: "private upstream detail" } });
+  });
+  const run = runner(service.baseUrl, stateDirectory);
+  try {
+    const resume = () => run(["insights", "takeover", "resume", MANAGER_SERVER, MANAGER_BOX, FINDING,
+      "--operation", predecessorId, "--file", join(directory, "resume.json")]);
+
+    let result = await resume();
+    assert.equal(result.code, 8, result.stderr);
+    result = await resume();
+    assert.equal(result.code, 8, result.stderr);
+    const autoPosts = service.requests.filter(({ path, method }) => path.includes("/resume") && method === "POST");
+    assert.equal(new Set(autoPosts.map(({ idempotencyKey }) => idempotencyKey)).size, 1,
+      "AutoResume replay must reuse one idempotency key");
+    assert.equal(autoPosts[0].body.restoreMode, "auto_steer");
+
+    for (const mode of ["recommend", "off"]) {
+      scenario = {
+        ...scenario,
+        mode,
+        resumeOperationId: `resume_${mode}0001`,
+        requestId: `req_${mode}0001`,
+      };
+      await writeFile(join(directory, "resume.json"), JSON.stringify(qualifiedBody()));
+      const modeResult = await run(["insights", "takeover", "resume", MANAGER_SERVER, MANAGER_BOX, FINDING,
+        "--operation", predecessorId, "--file", join(directory, "resume.json")]);
+      assert.equal(modeResult.code, 8, modeResult.stderr);
+    }
+
+    scenario = { ...scenario, mode: "turbo", resumeOperationId: "resume_turbo0001", requestId: "req_turbo0001" };
+    await writeFile(join(directory, "resume.json"), JSON.stringify(qualifiedBody()));
+    const beforeInvalid = service.requests.length;
+    result = await run(["insights", "takeover", "resume", MANAGER_SERVER, MANAGER_BOX, FINDING,
+      "--operation", predecessorId, "--file", join(directory, "resume.json")]);
+    assert.equal(result.code, 2, result.stderr);
+    assert.equal(service.requests.length, beforeInvalid, "unknown mode must fail before network");
+
+    scenario = { ...scenario, mode: "auto_steer", malformed: true, resumeOperationId: "resume_malformed0001", requestId: "req_malformed0001" };
+    await writeFile(join(directory, "resume.json"), JSON.stringify(qualifiedBody()));
+    result = await run(["insights", "takeover", "resume", MANAGER_SERVER, MANAGER_BOX, FINDING,
+      "--operation", predecessorId, "--file", join(directory, "resume.json")]);
+    assert.equal(result.code, 3, result.stderr);
+
+    scenario = { ...scenario, malformed: false, unqualified: true, resumeOperationId: "resume_unqualified0001", requestId: "req_unqualified0001" };
+    await writeFile(join(directory, "resume.json"), JSON.stringify(qualifiedBody()));
+    result = await run(["insights", "takeover", "resume", MANAGER_SERVER, MANAGER_BOX, FINDING,
+      "--operation", predecessorId, "--file", join(directory, "resume.json")]);
+    assert.notEqual(result.code, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /manager_capability_unavailable/);
+    assert.doesNotMatch(`${result.stdout}${result.stderr}`, /private backend detail|owner-insights-private-token/);
+    const unqualifiedRequests = service.requests.filter(({ idempotencyKey }) => idempotencyKey === "req_unqualified0001");
+    assert.equal(unqualifiedRequests.length, 1, "unqualified Auto must not be replayed or fall back");
+    assert.equal(unqualifiedRequests[0].method, "POST");
+    assert.equal(unqualifiedRequests[0].path, `/servers/${MANAGER_SERVER}/sandboxes/${MANAGER_BOX}/insights/${FINDING}/takeovers/${predecessorId}/resume`);
+  } finally {
+    await service.close();
+  }
+});
