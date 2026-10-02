@@ -1403,5 +1403,176 @@
       "workRevision": null
     },
     "validUntil": "2026-09-27T19:37:37Z"
+  },
+  "guidanceActivityList": {
+    "nextCursor": null,
+    "runs": [
+      {
+        "createdAt": "2026-09-27T19:07:49Z",
+        "errorCode": null,
+        "findingId": "finding_insights0001",
+        "inputTokens": 16000,
+        "managerSession": {
+          "capability": "exact_session",
+          "reason": null
+        },
+        "manual": true,
+        "modelRequests": 2,
+        "outputTokens": 2000,
+        "rationaleCode": "unchanged_failure_repeated",
+        "recipeId": "inspect_first_failure@1",
+        "requestId": "req_managerrecheck_test0001",
+        "reservationId": "reservation_ffcb5c125ff4705a0e503be0",
+        "ruleId": "repeated_identical_failure@1",
+        "runId": "run_e08a1d47ab3f7c77fa64096b9a1670aa",
+        "source": {
+          "instructionRevision": 1,
+          "nativeSessionId": "ses_managerreview",
+          "profileRevision": 1,
+          "registeredSourceId": "source_managerreview",
+          "sandboxGeneration": 1,
+          "serviceGeneration": 3,
+          "serviceRegistrationId": "service_managerreview",
+          "workspaceEpoch": "epoch_managerreview"
+        },
+        "state": "recommended",
+        "target": {
+          "bindingId": null,
+          "bindingRevision": null,
+          "memberId": "tmem_CaAquDcA8fjvBdxXnK1gzKB0",
+          "taskAttempt": null,
+          "taskId": null,
+          "teamId": "team_FctYIrOhdZtUjH9VQjq-YwiU",
+          "workId": null,
+          "workRevision": null
+        },
+        "updatedAt": "2026-10-02T15:55:01.030Z",
+        "guidance": {
+          "formatVersion": 1,
+          "sandboxId": "sbx_44701f63569482ba475bab49",
+          "reservationId": "reservation_managerreview0001",
+          "runId": "run_3f217769541e8b91a82a786976baf5b9",
+          "revision": 3,
+          "bindingDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "guidanceDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "guardId": "guard_a1b2c3d4e5f60718293a4b5c",
+          "pendingInputId": "msg_c1d2e3f405162738495a6b7c",
+          "state": "available_to_worker",
+          "refusalCode": null,
+          "logCursor": 42,
+          "observedAt": "2026-10-02T15:55:00Z",
+          "admittedAt": "2026-10-02T15:55:00.030Z",
+          "availableAt": "2026-10-02T15:55:01.030Z",
+          "settledAt": "2026-10-02T15:55:01.030Z",
+          "receiptDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        }
+      },
+      {
+        "createdAt": "2026-09-27T18:57:49Z",
+        "errorCode": null,
+        "findingId": "finding_insights0001",
+        "inputTokens": 16000,
+        "managerSession": {
+          "capability": "exact_session",
+          "reason": null
+        },
+        "manual": false,
+        "modelRequests": 2,
+        "outputTokens": 2000,
+        "rationaleCode": "unchanged_failure_repeated",
+        "recipeId": "inspect_first_failure@1",
+        "requestId": "req_managerreview0001",
+        "reservationId": "reservation_managerreview0001",
+        "ruleId": "repeated_identical_failure@1",
+        "runId": "run_3f217769541e8b91a82a786976baf5b9",
+        "source": {
+          "instructionRevision": 1,
+          "nativeSessionId": "ses_managerreview",
+          "profileRevision": 1,
+          "registeredSourceId": "source_managerreview",
+          "sandboxGeneration": 1,
+          "serviceGeneration": 3,
+          "serviceRegistrationId": "service_managerreview",
+          "workspaceEpoch": "epoch_managerreview"
+        },
+        "state": "recommended",
+        "target": {
+          "bindingId": null,
+          "bindingRevision": null,
+          "memberId": "tmem_CaAquDcA8fjvBdxXnK1gzKB0",
+          "taskAttempt": null,
+          "taskId": null,
+          "teamId": "team_FctYIrOhdZtUjH9VQjq-YwiU",
+          "workId": null,
+          "workRevision": null
+        },
+        "updatedAt": "2026-09-27T18:57:49Z"
+      }
+    ]
+  },
+  "awaitingGuidancePolicy": {
+    "allowedRules": [
+      "repeated_identical_failure@1"
+    ],
+    "appliedRevision": null,
+    "authorizationExpiresAt": "2026-09-27T19:09:49Z",
+    "autoSteer": {
+      "available": false,
+      "reason": "native_guard_unqualified"
+    },
+    "dailyInputTokenLimit": 480000,
+    "dailyOutputTokenLimit": 60000,
+    "dailyRunLimit": 30,
+    "effectiveLimits": {
+      "perRunInputTokens": 16000,
+      "perRunModelRequests": 2,
+      "perRunOutputTokens": 2000,
+      "sandboxDailyRuns": 30,
+      "sandboxHourlyRuns": 10,
+      "serverConcurrentRuns": 2,
+      "serverHourlyStarts": 20,
+      "sessionCooldownSeconds": 300,
+      "sessionRuns24h": 3
+    },
+    "formatVersion": 1,
+    "mode": "off",
+    "modelRoutes": [
+      {
+        "available": false,
+        "modelId": "openai/gpt-5.6-sol",
+        "protocol": "opencode-supervisor/1",
+        "providerId": "openai",
+        "providerRouteDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "reason": "runtime_unavailable",
+        "recipeIds": [
+          "inspect_first_failure@1"
+        ],
+        "registeredSourceId": "source_managerreview"
+      }
+    ],
+    "recommend": {
+      "available": true,
+      "reason": null
+    },
+    "revision": 3,
+    "sandboxId": "sbx_44701f63569482ba475bab49",
+    "status": "awaiting_guidance",
+    "updatedAt": "2026-09-27T19:07:49Z",
+    "autoSteerPolicy": {
+      "formatVersion": 1,
+      "available": true,
+      "reason": null,
+      "qualifiedTuple": {
+        "nativeGuardVersion": "warpmetal.atomic-input.v1",
+        "customNativeVersion": "2.0.14-wm.1",
+        "nativeSourceRevision": "08462140ec0de1e4b17d4a353d8d5827f53cf7b0",
+        "patchDigest": "sha256:5bcf0104d17a31d5141d9ad773b7ca7fbeddeb71a4a36689d5baee9f72f0f47b",
+        "artifactSha256": "sha256:69e7db9c21c2de97317b6aab50e06de3fc0a622fdd70ba4f305088825d65e844",
+        "binarySha256": "sha256:efc368d45d9226386d8a235cb85adfa17c5bff32f9208630cd771707378e92f9",
+        "imageDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "managerProfileDigest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "managerPluginDigest": "sha256:f7d9cec7e6bcfef134b0d27c5bd1526a0199859b5954c0dae523ff843eaf7a94"
+      }
+    }
   }
 }

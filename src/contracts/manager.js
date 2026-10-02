@@ -1,4 +1,4 @@
-// Generated from worker/account/manager.ts; SHA-256 2f97f5d43411ef68208cd0a9b001416d535ae51e6b14cfd0a3164eb39d72a787.
+// Generated from worker/account/manager.ts; SHA-256 d110c7399915f7c1fcf42403e82570271b4a4b6b71ba4c4f42c35a098145130a.
 /** The owner boundary accepts only the canonical closed, metadata-only schema. */
 import { readFileSync } from "node:fs";
 const contract = JSON.parse(readFileSync(new URL("./agent-manager-control-v1.schema.json", import.meta.url), "utf8"));

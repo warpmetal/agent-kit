@@ -186,10 +186,11 @@
         "effectiveLimits": {"$ref": "#/$defs/effectiveLimits"},
         "authorizationExpiresAt": {"type": ["string", "null"], "format": "date-time"},
         "appliedRevision": {"type": ["integer", "null"], "minimum": 1},
-        "status": {"type": "string", "enum": ["awaiting_runtime", "applied", "expired", "unavailable"]},
+        "status": {"type": "string", "enum": ["awaiting_runtime", "awaiting_guidance", "applied", "expired", "unavailable"]},
         "recommend": {"$ref": "#/$defs/capability"},
         "modelRoutes": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/modelRoute"}},
         "autoSteer": {"$ref": "#/$defs/capability"},
+        "autoSteerPolicy": {"type": ["object", "null"], "additionalProperties": false, "properties": {"formatVersion": {"const": 1}, "available": {"type": "boolean"}, "reason": {"type": ["string", "null"], "enum": [null, "native_guard_unqualified", "runtime_unavailable", "source_unavailable"]}, "qualifiedTuple": {"type": ["object", "null"]}}, "required": ["formatVersion", "available", "reason", "qualifiedTuple"]},
         "updatedAt": {"type": "string", "format": "date-time"}
       },
       "required": ["formatVersion", "sandboxId", "revision", "mode", "allowedRules", "dailyRunLimit", "dailyInputTokenLimit", "dailyOutputTokenLimit", "effectiveLimits", "authorizationExpiresAt", "appliedRevision", "status", "recommend", "modelRoutes", "autoSteer", "updatedAt"]
@@ -331,6 +332,7 @@
       "additionalProperties": false,
       "properties": {
         "runId": {"$ref": "#/$defs/id"},
+        "guidance": {"type": ["object", "null"], "additionalProperties": false, "properties": {"formatVersion": {"const": 1}, "sandboxId": {"$ref": "#/$defs/id"}, "reservationId": {"$ref": "#/$defs/id"}, "runId": {"$ref": "#/$defs/id"}, "revision": {"type": "integer", "minimum": 1}, "bindingDigest": {"$ref": "#/$defs/digest"}, "guidanceDigest": {"$ref": "#/$defs/digest"}, "guardId": {"type": "string"}, "pendingInputId": {"type": "string"}, "state": {"enum": ["pending", "available_to_worker", "cancelled", "refused", "unknown"]}, "refusalCode": {"type": ["string", "null"]}, "logCursor": {"type": ["integer", "null"], "minimum": 0}, "observedAt": {"type": "string"}, "admittedAt": {"type": ["string", "null"]}, "availableAt": {"type": ["string", "null"]}, "settledAt": {"type": ["string", "null"]}, "receiptDigest": {"$ref": "#/$defs/digest"}}, "required": ["formatVersion", "sandboxId", "reservationId", "runId", "revision", "bindingDigest", "guidanceDigest", "guardId", "pendingInputId", "state", "refusalCode", "logCursor", "observedAt", "admittedAt", "availableAt", "settledAt", "receiptDigest"]},
         "reservationId": {"$ref": "#/$defs/id"},
         "requestId": {"$ref": "#/$defs/id"},
         "manual": {"type": "boolean"},
@@ -395,7 +397,7 @@
     },
     "recommendCapabilityReport": {
       "type": "object", "additionalProperties": false,
-      "properties": {"source": {"$ref": "#/$defs/source"}, "providerRouteDigest": {"$ref": "#/$defs/digest"}, "providerId": {"$ref": "#/$defs/providerId"}, "modelId": {"$ref": "#/$defs/modelId"}, "protocol": {"const": "opencode-supervisor/1"}, "recipeIds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/recipe"}}, "maxInputTokens": {"const": 8000}, "maxOutputTokens": {"const": 1000}, "toolsAllowed": {"const": false}, "mediaAllowed": {"const": false}, "managerProfile": {"$ref": "#/$defs/managerProfile"}, "available": {"type": "boolean"}, "reason": {"$ref": "#/$defs/capabilityReason"}},
+      "properties": {"source": {"$ref": "#/$defs/source"}, "providerRouteDigest": {"$ref": "#/$defs/digest"}, "providerId": {"$ref": "#/$defs/providerId"}, "modelId": {"$ref": "#/$defs/modelId"}, "protocol": {"const": "opencode-supervisor/1"}, "recipeIds": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"$ref": "#/$defs/recipe"}}, "maxInputTokens": {"const": 8000}, "maxOutputTokens": {"const": 1000}, "toolsAllowed": {"const": false}, "mediaAllowed": {"const": false}, "managerProfile": {"$ref": "#/$defs/managerProfile"}, "nativeGuard": {"type": "object", "additionalProperties": false, "properties": {"guardVersion": {"type": "string"}, "customVersion": {"type": "string"}, "sourceRevision": {"type": "string"}, "patchDigest": {"$ref": "#/$defs/digest"}, "artifactSha256": {"$ref": "#/$defs/digest"}, "binarySha256": {"$ref": "#/$defs/digest"}}, "required": ["guardVersion", "customVersion", "sourceRevision", "patchDigest", "artifactSha256", "binarySha256"]}, "managerPluginDigest": {"$ref": "#/$defs/digest"}, "available": {"type": "boolean"}, "reason": {"$ref": "#/$defs/capabilityReason"}},
       "required": ["source", "providerRouteDigest", "providerId", "modelId", "protocol", "recipeIds", "maxInputTokens", "maxOutputTokens", "toolsAllowed", "mediaAllowed", "managerProfile", "available", "reason"]
     },
     "reviewManifest": {
