@@ -228,7 +228,7 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   );
 });
 
-for (const version of ["0.1.25", "0.1.26", "0.1.30", "0.1.31"]) {
+for (const version of ["0.1.25", "0.1.26", "0.1.30", "0.1.31", "0.1.32"]) {
   const shape = ["0.1.25", "0.1.26"].includes(version) ? "legacy" : "current";
   test(`runtime ${version} accepts the exact immutable ${shape} policy bundle`, async (context) => {
     const archive = await servedPolicyArchive(context, version);
@@ -321,11 +321,19 @@ for (const [version, bundleFiles, symlinkFile] of [
   ["0.1.27", [...BASE_BUNDLE_FILES, "unexpected-policy-helper"]],
   ["0.1.26", PRIVATE_PROCFS_BUNDLE_FILES, "warpmetal-policy-metadata"],
   ["0.1.27", BASE_BUNDLE_FILES, "warpmetal-sandbox.conf"],
+  [
+    "0.1.32",
+    PRIVATE_PROCFS_BUNDLE_FILES.filter(
+      (file) => file !== "warpmetal-policy-metadata",
+    ),
+  ],
+  ["0.1.32", [...PRIVATE_PROCFS_BUNDLE_FILES, "unexpected-policy-helper"]],
+  ["0.1.32", PRIVATE_PROCFS_BUNDLE_FILES, "warpmetal-policy-metadata"],
 ]) {
   const violation = symlinkFile
     ? "a symlink"
     : bundleFiles.length <
-        (version === "0.1.26"
+        (version === "0.1.26" || version === "0.1.32"
           ? PRIVATE_PROCFS_BUNDLE_FILES.length
           : BASE_BUNDLE_FILES.length)
       ? "a missing file"
