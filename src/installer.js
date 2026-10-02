@@ -25,20 +25,20 @@ const BASE_REQUIRED_FILES = [
   "warpmetal-sandbox.conf",
 ];
 
-const LEGACY_NESTED_PRIVATE_PROCFS_FILES = [
+const APPARMOR_POLICY_FILES = [
   "nested-private-procfs-oracle.sh",
   "warpmetal-agent-runtime-bwrap",
   "warpmetal-apparmor-policy.sh",
   "warpmetal-policy-metadata",
 ];
 
-function usesLegacyNestedPrivateProcfsBundle(version) {
-  return /^0\.1\.(?:25|26)(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
+function usesAppArmorPolicyBundle(version) {
+  return /^0\.1\.(?:25|26|30|31)(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
 }
 
 function requiredFiles(version) {
-  return usesLegacyNestedPrivateProcfsBundle(version)
-    ? [...BASE_REQUIRED_FILES, ...LEGACY_NESTED_PRIVATE_PROCFS_FILES]
+  return usesAppArmorPolicyBundle(version)
+    ? [...BASE_REQUIRED_FILES, ...APPARMOR_POLICY_FILES]
     : BASE_REQUIRED_FILES;
 }
 

@@ -425,6 +425,11 @@ See the complete [Work commands](docs/agent-work-cli.md),
   production image. It briefly disconnects active sessions but preserves the
   external workspace, lifetime, and start time. The wait completes only when
   the observed digest and generation both match the accepted target.
+- `sandbox action --action patch_image --confirm patch_image --image-digest <image@sha256:digest> --wait`
+  selects an approved immutable image for one sandbox while retaining its
+  incarnation generation. It briefly disconnects active sessions; the wait
+  requires the exact requested image digest even when the old container is
+  still running at that generation. Other actions refuse `--image-digest`.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
   second acknowledgment because all sandbox workspaces are erased. WarpMetal
   places the approved signed Runtime bootstrap in reload cloud-init

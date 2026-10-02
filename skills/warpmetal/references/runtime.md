@@ -183,6 +183,25 @@ workspace, sandbox lifetime, and original start time. `--wait` requires both
 the observed digest and generation to match the accepted target. A change to
 the global production image does not refresh existing sandboxes implicitly.
 
+To replace one sandbox's image while keeping its incarnation generation, use
+an explicitly approved digest-pinned image reference:
+
+```sh
+warpmetal sandbox action \
+  --server <serverId> \
+  --sandbox <sandboxId> \
+  --action patch_image \
+  --confirm patch_image \
+  --image-digest <registry/image@sha256:64-lowercase-hex-digest> \
+  --wait \
+  --json
+```
+
+This also briefly disconnects active sessions. The reference must contain an
+immutable SHA-256 digest; tags alone are refused. `--image-digest` is supported
+only for `patch_image`. Its wait requires the exact requested observed digest
+and the accepted generation, so a still-running old container is not completion.
+
 Manual deletion is irreversible:
 
 ```sh

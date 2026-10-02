@@ -138,7 +138,8 @@ Usage:
     [--lifetime temporary] [--expires-in-seconds <n>] [--confirm TEMPORARY] [--wait]
   warpmetal sandbox create --server <serverId> --file <batch.json> [--confirm TEMPORARY]
   warpmetal sandbox action --server <serverId> --sandbox <sandboxId>
-    --action <start|stop|restart|make_persistent|refresh_image> --confirm <same-action> [--wait]
+    --action <start|stop|restart|make_persistent|refresh_image|patch_image> --confirm <same-action>
+    [--image-digest <image@sha256:digest> (patch_image only)] [--wait]
   warpmetal sandbox list|get|action|delete ...
   warpmetal sandbox access keygen --output <private-key-path> --confirm GENERATE
   warpmetal sandbox access grant|list|get|revoke ...
@@ -2821,6 +2822,18 @@ async function handleSandboxGet(client, store, options, context) {
   return result.data.sandbox.observedState === "failed" ? 5 : 0;
 }
 
+function validateImmutableImageReference(reference) {
+  // Keep the canonical backend runtime.IMAGE_DIGEST full-match semantics.
+  const match = /^[a-z0-9][a-z0-9._:\/-]*@sha256:[a-f0-9]{64}$/.exec(reference);
+  if (match?.[0] !== reference) {
+    throw new CliError(
+      "--image-digest requires an immutable digest-pinned image reference ending in @sha256:<64 lowercase hex characters>.",
+      { exitCode: 2 },
+    );
+  }
+  return reference;
+}
+
 async function handleSandboxAction(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const sandboxId = stringOption(options, "sandbox", { required: true });
@@ -2832,10 +2845,11 @@ async function handleSandboxAction(client, store, options, context) {
       "restart",
       "make_persistent",
       "refresh_image",
+      "patch_image",
     ].includes(action)
   ) {
     throw new CliError(
-      "--action must be start, stop, restart, make_persistent, or refresh_image.",
+      "--action must be start, stop, restart, make_persistent, refresh_image, or patch_image.",
       {
         exitCode: 2,
       },
@@ -2846,6 +2860,17 @@ async function handleSandboxAction(client, store, options, context) {
       exitCode: 2,
     });
   }
+  if (action !== "patch_image" && options["image-digest"] !== undefined) {
+    throw new CliError("--image-digest is only supported with --action patch_image.", {
+      exitCode: 2,
+    });
+  }
+  const imageDigest =
+    action === "patch_image"
+      ? validateImmutableImageReference(
+          stringOption(options, "image-digest", { required: true }),
+        )
+      : undefined;
   const token = await requireServerToken(store, serverId, options, context.env);
   const key =
     stringOption(options, "idempotency-key") ||
@@ -2856,14 +2881,18 @@ async function handleSandboxAction(client, store, options, context) {
     action,
     token,
     key,
+    imageDigest,
   );
   if (booleanOption(options, "wait")) {
     const accepted = result.data.sandbox;
-    if (action === "refresh_image" && !accepted.desiredImageDigest) {
+    const imageAction = action === "refresh_image" || action === "patch_image";
+    if (imageAction && !accepted.desiredImageDigest) {
       throw new CliError(
-        "WarpMetal accepted image refresh without an immutable desired image digest.",
+        `WarpMetal accepted image ${action === "patch_image" ? "patch" : "refresh"} without an immutable desired image digest.`,
       );
     }
+    const expectedImageDigest =
+      action === "patch_image" ? imageDigest : accepted.desiredImageDigest;
     const expectedState =
       accepted.desiredState === "stopped" ? "stopped" : "running";
     result = await pollSandbox(
@@ -2875,8 +2904,7 @@ async function handleSandboxAction(client, store, options, context) {
       (sandbox) =>
         sandbox.observedState === expectedState &&
         Number(sandbox.observedGeneration) >= Number(accepted.generation) &&
-        (action !== "refresh_image" ||
-          sandbox.imageDigest === accepted.desiredImageDigest),
+        (!imageAction || sandbox.imageDigest === expectedImageDigest),
     );
   }
   await store.saveSandboxes(serverId, [result.data.sandbox]);
@@ -3734,6 +3762,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "sandbox",
         "token-file",
         "action",
+        "image-digest",
         "confirm",
         "idempotency-key",
         "wait",

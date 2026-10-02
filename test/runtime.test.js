@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import test from "node:test";
 
 import { parseArguments } from "../src/args.js";
@@ -729,79 +733,177 @@ test("sandbox image refresh requires exact confirmation before API access", asyn
   assert.match(stderr.value(), /confirm refresh_image/i);
 });
 
-test("sandbox image refresh waits for both digest and generation", async () => {
+test("sandbox image lifecycle preserves action bodies and waits for exact digest and generation", async (t) => {
   const targetDigest = `registry.example/sandbox@sha256:${"b".repeat(64)}`;
   const oldDigest = `registry.example/sandbox@sha256:${"a".repeat(64)}`;
+  const serverId = "srv_runtime12345";
+  const sandboxId = "sbx_review12345";
+  const ownerToken = "owner-image-fixture-only";
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-image-cli-e2e-"));
+  const execFile = promisify(execFileCallback);
   const requests = [];
   let polls = 0;
-  const fetchImpl = async (url, request = {}) => {
-    const path = new URL(url).pathname;
-    requests.push({ path, method: request.method, body: request.body });
-    if (request.method === "POST" && path.endsWith("/actions")) {
-      return jsonResponse(202, {
-        sandbox: {
-          id: "sbx_review12345",
-          desiredState: "running",
-          observedState: "running",
-          generation: 2,
-          observedGeneration: 1,
-          imageDigest: oldDigest,
-          desiredImageDigest: targetDigest,
-        },
-      });
-    }
-    if (request.method === "GET" && path.endsWith("/sbx_review12345")) {
-      polls += 1;
-      return jsonResponse(200, {
-        sandbox: {
-          id: "sbx_review12345",
-          desiredState: "running",
-          observedState: "running",
-          generation: 2,
-          observedGeneration: 2,
-          imageDigest: polls === 1 ? oldDigest : targetDigest,
-          desiredImageDigest: targetDigest,
-        },
-      });
-    }
-    return jsonResponse(404, { error: { message: "not found" } });
-  };
-  const stdout = capture();
-  const stderr = capture();
-  const code = await main(
-    [
-      "sandbox",
-      "action",
-      "--server",
-      "srv_runtime12345",
-      "--sandbox",
-      "sbx_review12345",
-      "--action",
-      "refresh_image",
-      "--confirm",
-      "refresh_image",
-      "--wait",
-      "--timeout-seconds",
-      "5",
-      "--base-url",
-      "http://localhost",
-      "--json",
-    ],
-    {
-      stdout: stdout.stream,
-      stderr: stderr.stream,
-      env: { WARPMETAL_OWNER_TOKEN: "owner-management-secret" },
-      fetchImpl,
-    },
-  );
-  assert.equal(code, 0, stderr.value());
-  assert.equal(polls, 2);
-  const mutation = requests.find((request) => request.method === "POST");
-  assert.deepEqual(JSON.parse(mutation.body), {
-    action: "refresh_image",
-    confirm: "refresh_image",
+  let scenario;
+  const endpoint = `/servers/${serverId}/sandboxes/${sandboxId}`;
+  const sandbox = (fields = {}) => ({
+    id: sandboxId,
+    desiredState: "running",
+    observedState: "running",
+    generation: 7,
+    observedGeneration: 7,
+    imageDigest: oldDigest,
+    desiredImageDigest: oldDigest,
+    ...fields,
   });
-  assert.equal(JSON.parse(stdout.value()).sandbox.imageDigest, targetDigest);
+  const server = http.createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const path = new URL(request.url, "http://localhost").pathname;
+    requests.push({
+      path,
+      method: request.method,
+      body: raw ? JSON.parse(raw) : undefined,
+      authorization: request.headers.authorization,
+      idempotencyKey: request.headers["idempotency-key"],
+    });
+    let status = 404;
+    let value = { error: { message: "not found" } };
+    if (request.method === "POST" && path.endsWith("/actions")) {
+      status = 202;
+      value = { sandbox: scenario?.accepted ?? sandbox() };
+    } else if (request.method === "GET" && path === endpoint) {
+      polls += 1;
+      status = 200;
+      value = { sandbox: scenario.observations[Math.min(polls - 1, scenario.observations.length - 1)] };
+    }
+    response.writeHead(status, { "content-type": "application/json", "retry-after": "1" });
+    response.end(JSON.stringify(value));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const run = async (action, extra = []) => {
+    try {
+      return {
+        code: 0,
+        ...(await execFile(process.execPath, [
+          "bin/warpmetal.js", "sandbox", "action",
+          "--server", serverId, "--sandbox", sandboxId,
+          "--action", action, "--confirm", action,
+          "--idempotency-key", `image-fixture-${action}`,
+          "--base-url", baseUrl, "--state-dir", join(directory, "state"),
+          "--json", ...extra,
+        ], {
+          cwd: new URL("..", import.meta.url).pathname,
+          env: { WARPMETAL_OWNER_TOKEN: ownerToken },
+          timeout: 20_000,
+          maxBuffer: 1024 * 1024,
+        })),
+      };
+    } catch (error) {
+      return { code: error.code, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+    }
+  };
+
+  try {
+    await t.test("patch_image requires an immutable digest before HTTP", async () => {
+      const before = requests.length;
+      const result = await run("patch_image");
+      assert.equal(result.code, 2, result.stderr);
+      assert.equal(requests.length, before);
+      assert.match(result.stderr, /--image-digest.*(required|requires|digest)/i);
+    });
+
+    for (const action of ["start", "stop", "restart", "make_persistent", "refresh_image", "patch_image"]) {
+      await t.test(`${action} sends the exact lifecycle intent`, async () => {
+        const before = requests.length;
+        polls = 0;
+        const imageAction = ["refresh_image", "patch_image"].includes(action);
+        const generation = action === "refresh_image" ? 8 : 7;
+        scenario = {
+          accepted: sandbox({
+            generation,
+            desiredImageDigest: imageAction ? targetDigest : oldDigest,
+            desiredState: action === "stop" ? "stopped" : "running",
+          }),
+          observations: action === "refresh_image"
+            ? [
+                sandbox({ imageDigest: targetDigest, desiredImageDigest: targetDigest }),
+                sandbox({ generation, observedGeneration: generation, desiredImageDigest: targetDigest }),
+                sandbox({ generation, observedGeneration: generation, imageDigest: targetDigest, desiredImageDigest: targetDigest }),
+              ]
+            : [
+                sandbox({ desiredImageDigest: targetDigest }),
+                sandbox({ imageDigest: targetDigest, desiredImageDigest: targetDigest }),
+              ],
+        };
+        const result = await run(action, [
+          ...(action === "patch_image" ? ["--image-digest", targetDigest] : []),
+          ...(imageAction ? ["--wait", "--timeout-seconds", "5"] : []),
+        ]);
+        assert.equal(result.code, 0, result.stderr);
+        const emitted = JSON.parse(result.stdout).sandbox;
+        const emittedRequests = requests.slice(before);
+        const mutations = emittedRequests.filter((request) => request.method === "POST");
+        assert.equal(mutations.length, 1, "one explicit lifecycle intent, without replay");
+        assert.equal(mutations[0].path, `${endpoint}/actions`);
+        assert.equal(mutations[0].authorization, `Bearer ${ownerToken}`);
+        assert.equal(mutations[0].idempotencyKey, `image-fixture-${action}`);
+        assert.deepEqual(mutations[0].body,
+          action === "patch_image" ? { action, confirm: action, imageDigest: targetDigest }
+            : action === "refresh_image" ? { action, confirm: action } : { action });
+        assert.equal(emitted.id, sandboxId);
+        assert.equal(emitted.generation, generation);
+        if (imageAction) {
+          assert.equal(polls, action === "refresh_image" ? 3 : 2,
+            "old running image or old generation cannot satisfy image completion");
+          assert.equal(emitted.imageDigest, targetDigest);
+          assert.equal(emitted.observedGeneration, generation);
+          assert.ok(emittedRequests.filter((request) => request.method === "GET")
+            .every((request) => request.path === endpoint && request.authorization === `Bearer ${ownerToken}`));
+        }
+        assert.equal(result.stdout.includes(ownerToken), false);
+        assert.equal(result.stderr.includes(ownerToken), false);
+      });
+    }
+
+    await t.test("patch_image rejects mutable or malformed references before HTTP", async () => {
+      for (const digest of [
+        "registry.example/sandbox:latest",
+        `registry.example/sandbox@sha256:${"a".repeat(63)}`,
+        `registry.example/sandbox@sha256:${"A".repeat(64)}`,
+        `registry.example/sandbox @sha256:${"a".repeat(64)}`,
+      ]) {
+        const before = requests.length;
+        const result = await run("patch_image", ["--image-digest", digest]);
+        assert.equal(result.code, 2, result.stderr);
+        assert.equal(requests.length, before);
+        assert.match(result.stderr, /--image-digest.*(immutable|digest-pinned|sha256)/i);
+      }
+    });
+
+    await t.test("image-digest is rejected for every other lifecycle action before HTTP", async () => {
+      for (const action of ["start", "stop", "restart", "make_persistent", "refresh_image"]) {
+        const before = requests.length;
+        const result = await run(action, ["--image-digest", targetDigest]);
+        assert.equal(result.code, 2, result.stderr);
+        assert.equal(requests.length, before);
+        assert.match(result.stderr, /--image-digest.*(only|requires).*patch_image/i);
+      }
+    });
+
+    await t.test("patch_image requires exact owner confirmation before HTTP", async () => {
+      const before = requests.length;
+      const result = await run("patch_image", ["--image-digest", targetDigest, "--confirm", "refresh_image"]);
+      assert.equal(result.code, 2, result.stderr);
+      assert.equal(requests.length, before);
+      assert.match(result.stderr, /confirm patch_image/i);
+    });
+  } finally {
+    server.close();
+    await once(server, "close");
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("capacity-only access grant works without tool fields and writes a token-free profile", async () => {
