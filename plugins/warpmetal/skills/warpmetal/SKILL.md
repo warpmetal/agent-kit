@@ -356,3 +356,50 @@ If the installed CLI lacks a required runtime command, stop, explain the
 version limitation, and ask before upgrading the official npm package. Do not
 reconstruct runtime changes with raw HTTP, ad hoc SSH, Podman, Docker, or host
 configuration commands.
+
+## Retained Work and Insights
+
+The source candidate adds positional Work, Insights, manager and exact-session
+commands. Confirm their presence with `warpmetal --help` before use. They
+require an existing server owner or SSH login; the account login session does
+not authorize these routes. Keep `--json` for agent-driven metadata and status
+commands.
+
+```sh
+warpmetal work list SERVER BOX --json
+warpmetal work show SERVER BOX WORK --json
+warpmetal work status SERVER BOX WORK --kind checkpoint --request REQUEST --json
+warpmetal insights list SERVER BOX --json
+warpmetal insights manager settings SERVER BOX --json
+warpmetal insights manager status SERVER BOX FINDING --request REQUEST --json
+```
+
+Mutation requests use `--file` with a closed JSON object containing its saved
+request ID and exact revision fences. Persist the owner's intended request
+before invoking a mutation. The CLI journals only opaque IDs and a body digest
+before dispatch. Repeating the same origin, route and request ID performs
+GET-only reconciliation. Never replace the request ID to work around an
+ambiguous response, stale revision or conflict. Pending operations exit 8;
+conflicts or terminal failures exit 5. Accepted continuation/handoff proves
+admission, while the task outcome remains pending.
+
+Ordinary output is metadata. `work content` deliberately reads private owner
+text; `work create` and `work update` deliberately write it from the explicit
+request file. Do not copy private content into evidence, logs or unrelated
+commands.
+
+`work open SERVER BOX WORK --json`, `insights open SERVER BOX FINDING --json`
+and `insights review SERVER BOX RUN --json` return a fresh validated descriptor
+without attaching. Human interactive mode needs `--connection-file` plus
+`--identity` for the selected sandbox grant, and local OpenCode 2.0.14. It uses a
+fixed, pinned SSH bridge and exact session ID, creates no session and sends no
+initial prompt. Do not substitute the VPS owner identity, raw host paths or a
+fallback session. Manager review is read-only. Recommend mode has no automatic
+worker steering; protected takeover and explicit Resume require the current
+operation, policy and hold revisions.
+
+Complete schemas and grammar accompany the candidate package in
+`docs/agent-work-cli.md`, `docs/agent-insights-cli.md` and
+`docs/session-handoff-transport.md`. These commands require the matching
+candidate control plane, Runtime and Sandbox; CLI availability alone does not
+prove that the server supports them.

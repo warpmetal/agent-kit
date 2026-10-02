@@ -380,11 +380,13 @@ export class WarpMetalClient {
     );
   }
 
-  sandboxAction(serverId, sandboxId, action, token, idempotencyKey) {
+  sandboxAction(serverId, sandboxId, action, token, idempotencyKey, imageDigest) {
     const body =
-      action === "refresh_image"
-        ? { action, confirm: "refresh_image" }
-        : { action };
+      action === "patch_image"
+        ? { action, confirm: "patch_image", imageDigest }
+        : action === "refresh_image"
+          ? { action, confirm: "refresh_image" }
+          : { action };
     return this.request(
       "POST",
       `/servers/${encodeURIComponent(serverId)}/sandboxes/${encodeURIComponent(sandboxId)}/actions`,

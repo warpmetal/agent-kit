@@ -10,6 +10,7 @@
 - Server management
 - Agent Runtime and sandboxes
 - Per-agent access
+- Retained Work and Insights (source candidate)
 - Skill installation and state
 - Exit codes
 
@@ -342,8 +343,8 @@ warpmetal sandbox list --server <serverId> --json
 warpmetal sandbox get --server <serverId> --sandbox <sandboxId> [--wait] --json
 warpmetal sandbox action \
   --server <serverId> --sandbox <sandboxId> \
-  --action <start|stop|restart|make_persistent|refresh_image> --confirm <same-action> \
-  [--wait] --json
+  --action <start|stop|restart|make_persistent|refresh_image|patch_image> --confirm <same-action> \
+  [--image-digest <image@sha256:digest>] [--wait] --json
 warpmetal sandbox delete \
   --server <serverId> --sandbox <sandboxId> --confirm DELETE [--wait] --json
 
@@ -410,6 +411,57 @@ shape below in addition to `sandboxes`:
 Every selection must reference a sandbox name in the same file. Unknown fields,
 including URL, shell, command, argv, environment, or artifact overrides, are
 rejected before an API request.
+
+## Retained Work and Insights (source candidate)
+
+Discover command availability with `warpmetal --help`; these routes require
+the corresponding candidate control plane, Runtime and Sandbox.
+
+```sh
+warpmetal work list|sources|policy SERVER BOX --json
+warpmetal work show|content|targets SERVER BOX WORK --json
+warpmetal work create SERVER BOX --file request.json --json
+warpmetal work update|enable|checkpoint|continue|restore|handoff SERVER BOX WORK --file request.json --json
+warpmetal work status SERVER BOX WORK --kind checkpoint|continue|restore|handoff \
+  (--request REQUEST | --operation OPERATION) --json
+warpmetal work open SERVER BOX WORK --json
+warpmetal insights summary SERVER --json
+warpmetal insights status|list SERVER BOX --json
+warpmetal insights enable|disable SERVER BOX --file request.json --json
+warpmetal insights show SERVER BOX FINDING --json
+warpmetal insights acknowledge|snooze|dismiss SERVER BOX FINDING --file request.json --json
+warpmetal insights open SERVER BOX FINDING [--takeover OPERATION] --json
+warpmetal insights manager settings SERVER BOX [--file request.json] --json
+warpmetal insights manager activity SERVER BOX [--finding FINDING] --json
+warpmetal insights manager run SERVER BOX RUN --json
+warpmetal insights manager target SERVER BOX FINDING --json
+warpmetal insights manager recheck SERVER BOX FINDING --file request.json --json
+warpmetal insights manager status SERVER BOX FINDING --request REQUEST --json
+warpmetal insights takeover list SERVER BOX FINDING --json
+warpmetal insights takeover SERVER BOX FINDING --file request.json --json
+warpmetal insights takeover status SERVER BOX FINDING --operation OPERATION --json
+warpmetal insights takeover resume SERVER BOX FINDING --operation OPERATION --file request.json --json
+warpmetal insights review SERVER BOX RUN --json
+```
+
+Use the server's existing scoped owner/SSH credential. The account session is
+not a fallback. `--file` mutations validate a closed request with an explicit
+request ID and revision fences before HTTP. Saved same-intent retries are
+GET-only. Preserve the original request after a lost reply; never generate a
+new request to bypass an uncertain outcome. Pending operations exit 8, terminal
+failures/conflicts exit 5. Accepted Continue/handoff means task admission, not
+completion. Check task state separately.
+
+Only `work content` deliberately prints private content. Metadata and receipts
+are closed projections. Do not log private request files or content output.
+
+`open`/`review --json` returns a fresh descriptor without SSH. For deliberate
+human interactive access, omit `--json` and supply absolute
+`--connection-file` and `--identity` paths for the exact sandbox grant. Local
+OpenCode 2.0.14 connects through the fixed pinned bridge to the exact existing
+session. The command creates no session and sends no initial prompt. Manager
+review cannot mutate the worker. Takeover checks the current protected hold;
+Resume requires its saved operation, predecessor and revision tuple.
 
 ## Per-agent access
 

@@ -16,6 +16,7 @@ import {
   authenticatedAccountClient,
 } from "./account-gateway.js";
 import { WarpMetalClient } from "./api.js";
+import { managementClient, managementMutations, readManagementInput } from "./agent-management.js";
 import { connectionProfile, writeConnectionProfile } from "./connection.js";
 import { CliError, toErrorMessage } from "./errors.js";
 import { establishHostTrust } from "./host-trust.js";
@@ -137,7 +138,8 @@ Usage:
     [--lifetime temporary] [--expires-in-seconds <n>] [--confirm TEMPORARY] [--wait]
   warpmetal sandbox create --server <serverId> --file <batch.json> [--confirm TEMPORARY]
   warpmetal sandbox action --server <serverId> --sandbox <sandboxId>
-    --action <start|stop|restart|make_persistent|refresh_image> --confirm <same-action> [--wait]
+    --action <start|stop|restart|make_persistent|refresh_image|patch_image> --confirm <same-action>
+    [--image-digest <image@sha256:digest> (patch_image only)] [--wait]
   warpmetal sandbox list|get|action|delete ...
   warpmetal sandbox access keygen --output <private-key-path> --confirm GENERATE
   warpmetal sandbox access grant|list|get|revoke ...
@@ -151,6 +153,31 @@ Usage:
   warpmetal tools install --server <serverId> --sandbox <sandboxId> --profile <profileId>
     [--idempotency-key <key>] [--wait] [--timeout-seconds <n>]
   warpmetal tools status --server <serverId> [--wait] [--timeout-seconds <n>]
+  warpmetal work list|sources|policy SERVER BOX [--json]
+  warpmetal work show|content|targets SERVER BOX WORK [--json]
+  warpmetal work create SERVER BOX --file <request.json>
+  warpmetal work update|enable|checkpoint|continue|restore|handoff SERVER BOX WORK --file <request.json>
+  warpmetal work status SERVER BOX WORK --kind <checkpoint|continue|restore|handoff>
+    (--request <requestId> | --operation <operationId>)
+  warpmetal work open SERVER BOX WORK [--connection-file <profile> --identity <sandbox-key> | --json]
+  warpmetal insights summary SERVER [--limit <n>] [--cursor <cursor>]
+  warpmetal insights status|list SERVER BOX [--json]
+  warpmetal insights enable|disable SERVER BOX --file <request.json>
+  warpmetal insights show SERVER BOX FINDING [--json]
+  warpmetal insights acknowledge|snooze|dismiss SERVER BOX FINDING --file <request.json>
+  warpmetal insights open SERVER BOX FINDING [--takeover <operationId>]
+    [--connection-file <profile> --identity <sandbox-key> | --json]
+  warpmetal insights manager settings SERVER BOX [--file <request.json>]
+  warpmetal insights manager activity SERVER BOX [--finding <findingId>]
+  warpmetal insights manager run SERVER BOX RUN
+  warpmetal insights manager target SERVER BOX FINDING
+  warpmetal insights manager recheck SERVER BOX FINDING --file <request.json>
+  warpmetal insights manager status SERVER BOX FINDING --request <requestId>
+  warpmetal insights takeover list SERVER BOX FINDING
+  warpmetal insights takeover SERVER BOX FINDING --file <request.json>
+  warpmetal insights takeover status SERVER BOX FINDING --operation <operationId>
+  warpmetal insights takeover resume SERVER BOX FINDING --operation <operationId> --file <request.json>
+  warpmetal insights review SERVER BOX RUN [--connection-file <profile> --identity <sandbox-key> | --json]
   warpmetal state list
   warpmetal agent install --target <codex|claude|all> [--scope <user|project>] [--force]
 
@@ -250,6 +277,18 @@ Sandbox SSH aliases:
     https://cursor.com/docs/cli/headless
     https://geminicli.com/docs/get-started/installation/
     https://geminicli.com/docs/cli/headless/
+
+Retained Work and Insights:
+  Use an existing server owner/SSH login. Mutations take a closed request JSON
+  file with its request ID and revision fences. Repeating the same saved intent
+  performs GET-only reconciliation. Ordinary output contains metadata; work
+  content deliberately returns private owner text. Pending operations exit 8,
+  conflicts/terminal failures exit 5. Accepted continuation or handoff means
+  task admission, not task completion.
+  open/review --json returns a fresh exact descriptor. Interactive attachment
+  requires a sandbox grant/profile and local OpenCode 2.0.14. It creates no
+  session or initial prompt. Manager review is read-only. Recommend mode cannot
+  automatically steer a worker; protected takeover and Resume are explicit.
 
 Credential environment variables:
   WARPMETAL_OWNER_TOKEN  Recovery/bootstrap credential for one explicit command
@@ -2783,6 +2822,18 @@ async function handleSandboxGet(client, store, options, context) {
   return result.data.sandbox.observedState === "failed" ? 5 : 0;
 }
 
+function validateImmutableImageReference(reference) {
+  // Keep the canonical backend runtime.IMAGE_DIGEST full-match semantics.
+  const match = /^[a-z0-9][a-z0-9._:\/-]*@sha256:[a-f0-9]{64}$/.exec(reference);
+  if (match?.[0] !== reference) {
+    throw new CliError(
+      "--image-digest requires an immutable digest-pinned image reference ending in @sha256:<64 lowercase hex characters>.",
+      { exitCode: 2 },
+    );
+  }
+  return reference;
+}
+
 async function handleSandboxAction(client, store, options, context) {
   const serverId = stringOption(options, "server", { required: true });
   const sandboxId = stringOption(options, "sandbox", { required: true });
@@ -2794,10 +2845,11 @@ async function handleSandboxAction(client, store, options, context) {
       "restart",
       "make_persistent",
       "refresh_image",
+      "patch_image",
     ].includes(action)
   ) {
     throw new CliError(
-      "--action must be start, stop, restart, make_persistent, or refresh_image.",
+      "--action must be start, stop, restart, make_persistent, refresh_image, or patch_image.",
       {
         exitCode: 2,
       },
@@ -2808,6 +2860,17 @@ async function handleSandboxAction(client, store, options, context) {
       exitCode: 2,
     });
   }
+  if (action !== "patch_image" && options["image-digest"] !== undefined) {
+    throw new CliError("--image-digest is only supported with --action patch_image.", {
+      exitCode: 2,
+    });
+  }
+  const imageDigest =
+    action === "patch_image"
+      ? validateImmutableImageReference(
+          stringOption(options, "image-digest", { required: true }),
+        )
+      : undefined;
   const token = await requireServerToken(store, serverId, options, context.env);
   const key =
     stringOption(options, "idempotency-key") ||
@@ -2818,14 +2881,18 @@ async function handleSandboxAction(client, store, options, context) {
     action,
     token,
     key,
+    imageDigest,
   );
   if (booleanOption(options, "wait")) {
     const accepted = result.data.sandbox;
-    if (action === "refresh_image" && !accepted.desiredImageDigest) {
+    const imageAction = action === "refresh_image" || action === "patch_image";
+    if (imageAction && !accepted.desiredImageDigest) {
       throw new CliError(
-        "WarpMetal accepted image refresh without an immutable desired image digest.",
+        `WarpMetal accepted image ${action === "patch_image" ? "patch" : "refresh"} without an immutable desired image digest.`,
       );
     }
+    const expectedImageDigest =
+      action === "patch_image" ? imageDigest : accepted.desiredImageDigest;
     const expectedState =
       accepted.desiredState === "stopped" ? "stopped" : "running";
     result = await pollSandbox(
@@ -2837,8 +2904,7 @@ async function handleSandboxAction(client, store, options, context) {
       (sandbox) =>
         sandbox.observedState === expectedState &&
         Number(sandbox.observedGeneration) >= Number(accepted.generation) &&
-        (action !== "refresh_image" ||
-          sandbox.imageDigest === accepted.desiredImageDigest),
+        (!imageAction || sandbox.imageDigest === expectedImageDigest),
     );
   }
   await store.saveSandboxes(serverId, [result.data.sandbox]);
@@ -3369,6 +3435,23 @@ async function dispatch(positionals, options, passthrough, context) {
   });
   const store = new StateStore(stateDir);
 
+  if (positionals[0] === "work" || positionals[0] === "insights") {
+    const scopedClient = managementClient({
+      baseUrl: baseUrl || context.env.WARPMETAL_API_URL,
+      fetchImpl: context.fetchImpl,
+    });
+    const services = {
+      client: scopedClient, store, context, requireServerToken, emit,
+      readInput: readManagementInput,
+      runMutation: managementMutations(stateDir, scopedClient.baseUrl),
+      openSessionHandoff: async (...args) => (await import("./session-handoff.js")).openSessionHandoff(...args),
+    };
+    if (positionals[0] === "work") {
+      return (await import("./agent-work.js")).handleWork(positionals, options, services);
+    }
+    return (await import("./agent-insights.js")).handleInsights(positionals, options, services);
+  }
+
   switch (command) {
     case "health":
       rejectUnknownOptions(options, COMMON_OPTIONS);
@@ -3679,6 +3762,7 @@ async function dispatch(positionals, options, passthrough, context) {
         "sandbox",
         "token-file",
         "action",
+        "image-digest",
         "confirm",
         "idempotency-key",
         "wait",

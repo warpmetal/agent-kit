@@ -353,6 +353,47 @@ checkout requires the private WarpMetal owner token, so x402api authorizes and
 WarpMetal submits. WarpMetal keeps `--payment-signature-file` for another
 compatible external signer.
 
+## Retained Work and Insights
+
+The positional management commands use an existing server owner or SSH login:
+
+```sh
+warpmetal work list SERVER BOX --json
+warpmetal work show SERVER BOX WORK --json
+warpmetal work checkpoint SERVER BOX WORK --file checkpoint.json --json
+warpmetal work status SERVER BOX WORK --kind checkpoint --request REQUEST --json
+warpmetal insights list SERVER BOX --json
+warpmetal insights manager settings SERVER BOX --json
+warpmetal work open SERVER BOX WORK --connection-file sandbox.json --identity /path/to/sandbox-key
+warpmetal insights review SERVER BOX RUN --connection-file sandbox.json --identity /path/to/sandbox-key
+```
+
+Mutations require a closed JSON request with its request ID and exact revision
+fences. The private intent journal saves only opaque IDs, a body digest and
+progress before sending the mutation. Repeating the same intent uses GET-only
+reconciliation; a different body on the same route and request ID is refused.
+Pending operations exit 8, conflicts and terminal failures exit 5. A completed
+continuation or handoff receipt proves task admission; the task outcome remains
+pending.
+
+Metadata output excludes private Work content. `work content` deliberately
+returns that text, and `work create`/`update` accept it through the explicit
+input file. Redirects, oversized responses and malformed or foreign authority
+are refused before output. Account login does not authorize these endpoints;
+use `server login` or an existing scoped owner token.
+
+`open` and `review` fetch a fresh exact session descriptor. With `--json`, they
+return the descriptor without attaching. Interactive access requires a sandbox
+SSH grant, its pinned connection profile, matching sandbox identity, and local
+OpenCode 2.0.14. The fixed SSH bridge launches no initial prompt or new session.
+Manager review remains read-only; recommendation mode cannot automatically
+steer a worker. Protected takeover and Resume are explicit, revision-checked
+operations.
+
+See the complete [Work commands](docs/agent-work-cli.md),
+[Insights and manager commands](docs/agent-insights-cli.md), and
+[session transport](docs/session-handoff-transport.md).
+
 ## Security boundary
 
 - Order and access tokens are never printed; they are written to
@@ -366,8 +407,9 @@ compatible external signer.
 - The CLI writes x402api-compatible request envelopes and accepts validated
   x402api payment artifacts or a compatible external `PAYMENT-SIGNATURE` file.
   Wallet key management and signing remain outside this package.
-- Destructive or state-changing commands require explicit confirmations and
-  generate idempotency keys by default.
+- Destructive lifecycle commands require explicit confirmations and generate
+  idempotency keys by default. Work and Insights mutations require an explicit
+  closed request file with its request ID and revision fences.
 - Runtime bootstrap credentials remain memory-only. Manual installation asks
   for one only after the first host key has been pinned and strictly reverified;
   automatic reload bootstrap is rendered directly into provider-bound
@@ -383,6 +425,11 @@ compatible external signer.
   production image. It briefly disconnects active sessions but preserves the
   external workspace, lifetime, and start time. The wait completes only when
   the observed digest and generation both match the accepted target.
+- `sandbox action --action patch_image --confirm patch_image --image-digest <image@sha256:digest> --wait`
+  selects an approved immutable image for one sandbox while retaining its
+  incarnation generation. It briefly disconnects active sessions; the wait
+  requires the exact requested image digest even when the old container is
+  still running at that generation. Other actions refuse `--image-digest`.
 - Guarded reload powers the server off first. Runtime-enabled reload requires a
   second acknowledgment because all sandbox workspaces are erased. WarpMetal
   places the approved signed Runtime bootstrap in reload cloud-init

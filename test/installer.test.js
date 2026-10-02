@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -31,8 +36,10 @@ const PRIVATE_PROCFS_BUNDLE_FILES = [
   ...NESTED_PRIVATE_PROCFS_FILES,
 ];
 
-function artifactFixture(version = "0.1.24") {
-  const content = Buffer.from("signed WarpMetal runtime archive");
+function artifactFixture(
+  version = "0.1.24",
+  content = Buffer.from("signed WarpMetal runtime archive"),
+) {
   const { privateKey, publicKey } = generateKeyPairSync("ed25519");
   return {
     content,
@@ -46,16 +53,63 @@ function artifactFixture(version = "0.1.24") {
   };
 }
 
+async function servedPolicyArchive(context, version) {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-policy-archive-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  const bundleName = `warpmetal-runtime-${version}-linux-amd64`;
+  const bundle = join(directory, bundleName);
+  await mkdir(bundle);
+  // Exact release.yml member names; file bytes are local signed test data.
+  for (const name of PRIVATE_PROCFS_BUNDLE_FILES) {
+    await writeFile(join(bundle, name), `fixture ${name}\n`);
+  }
+  const archive = join(directory, `${bundleName}.tar.gz`);
+  const packed = spawnSync("tar", ["-czf", archive, "-C", directory, bundleName]);
+  assert.equal(packed.status, 0, packed.stderr?.toString());
+  const fixture = artifactFixture(version, await readFile(archive));
+  const requests = [];
+  const server = createServer((request, response) => {
+    requests.push({ method: request.method, path: request.url });
+    if (request.method !== "GET" || request.url !== "/runtime.tar.gz") {
+      response.writeHead(404).end();
+      return;
+    }
+    response.writeHead(200, {
+      "content-type": "application/gzip",
+      "content-length": String(fixture.content.length),
+    });
+    response.end(fixture.content);
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  context.after(() => new Promise((resolve) => server.close(resolve)));
+  return {
+    ...fixture,
+    requests,
+    fetchImpl: (url, options) => {
+      assert.equal(url, fixture.metadata.url);
+      // Only the local test transport changes; HTTPS metadata remains validated.
+      return fetch(`http://127.0.0.1:${server.address().port}/runtime.tar.gz`, options);
+    },
+  };
+}
+
 function spawnRecorder({
   failInstall = false,
   installError = "install failed",
   bundleFiles = BASE_BUNDLE_FILES,
   bundleSymlinks = [],
+  realLocalTools = false,
 } = {}) {
   const calls = [];
   const symlinks = new Set(bundleSymlinks);
   const spawnImpl = (command, args, options) => {
     calls.push({ command, args, options });
+    if (realLocalTools && ["mkdir", "tar"].includes(command)) {
+      return nodeSpawn(command, args, options);
+    }
     if (command === "tar" && args[0] === "-xzf") {
       const extractPath = args[args.indexOf("-C") + 1];
       mkdirSync(extractPath, { recursive: true });
@@ -174,17 +228,32 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   );
 });
 
-for (const version of ["0.1.25", "0.1.26"]) {
-  test(`runtime ${version} accepts the exact immutable legacy policy bundle`, async () => {
-    const recorder = spawnRecorder({ bundleFiles: PRIVATE_PROCFS_BUNDLE_FILES });
+for (const version of ["0.1.25", "0.1.26", "0.1.30", "0.1.31"]) {
+  const shape = ["0.1.25", "0.1.26"].includes(version) ? "legacy" : "current";
+  test(`runtime ${version} accepts the exact immutable ${shape} policy bundle`, async (context) => {
+    const archive = await servedPolicyArchive(context, version);
+    const recorder = spawnRecorder({ realLocalTools: true });
     const fixture = installFixture({
       artifactVersion: version,
       spawnImpl: recorder.spawnImpl,
+      bootstrap: { artifact: archive.metadata, bootstrapToken: "rtb_secret" },
+      fetchImpl: archive.fetchImpl,
     });
 
-    const result = await installRuntime(fixture.arguments);
+    const outcome = await installRuntime(fixture.arguments).then(
+      (result) => ({ result }),
+      (error) => ({ error }),
+    );
+    assert.deepEqual(archive.requests, [{ method: "GET", path: "/runtime.tar.gz" }]);
+    assert.equal(recorder.calls.filter(({ command }) => command === "tar").length, 1);
+    if (outcome.error) {
+      assert.equal(recorder.calls.some(({ command }) => ["ssh", "scp"].includes(command)), false);
+      throw outcome.error;
+    }
+    const result = outcome.result;
 
     assert.equal(result.installed, true);
+    assert.equal(result.supervisorVersion, version);
     assert.equal(Object.hasOwn(result, "nestedPrivateProcfsAction"), false);
     const install = recorder.calls.find(
       (call) =>

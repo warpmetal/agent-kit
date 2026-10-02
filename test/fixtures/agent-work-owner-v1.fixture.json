@@ -1,0 +1,50 @@
+{
+  "policyResponse": {
+    "policyVersion": 1,
+    "storagePolicy": {
+      "location": "local_vps",
+      "scope": "sandbox_work",
+      "maxCheckpointBytes": 268435456,
+      "maxCheckpointObjectCount": 10000,
+      "maxBoxBytes": 1073741824,
+      "maxCheckpointsPerBox": 20,
+      "maxAgeDays": 30,
+      "pinRule": "latest_active_work",
+      "exclusions": ["native_history", "credentials", "runtime_state", "external_side_effects"]
+    },
+    "continuityOptIn": {"state": "available", "reason": null}
+  },
+  "workProjection": {
+    "title": "Release validation",
+    "assignedAgent": {"memberId": "tmem_workowner0001", "label": "builder", "role": "worker"},
+    "storagePolicy": {
+      "location": "local_vps",
+      "scope": "sandbox_work",
+      "maxCheckpointBytes": 268435456,
+      "maxCheckpointObjectCount": 10000,
+      "maxBoxBytes": 1073741824,
+      "maxCheckpointsPerBox": 20,
+      "maxAgeDays": 30,
+      "pinRule": "latest_active_work",
+      "exclusions": ["native_history", "credentials", "runtime_state", "external_side_effects"]
+    },
+    "capabilities": {
+      "capture": {"state": "unavailable", "reason": "binding_not_verified", "boundaryKinds": ["initial", "task", "stopped"], "requiresVerifiedBinding": true, "maxBytes": 268435456, "maxObjectCount": 10000, "captureRequest": {"boundaryKind": "initial", "taskId": null, "taskAttempt": null}},
+      "continue": {"state": "unavailable", "reason": "checkpoint_required"},
+      "restore": {"state": "unavailable", "reason": "restore_not_available"}
+    },
+    "currentCheckpoint": {
+      "checkpointId": "checkpoint_workowner0001",
+      "captureId": "capture_workowner0001",
+      "manifestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "bytes": 4096,
+      "objectCount": 12,
+      "operationId": "op_capture_workowner0001",
+      "boundaryKind": "task",
+      "taskId": "teamtask_workowner0001",
+      "taskAttempt": 2,
+      "acceptedAt": "2026-09-27T12:00:00Z"
+    }
+  },
+  "optInRequest": {"version": 1, "requestId": "req_optin_workowner0001", "expectedRevision": 1, "continuityEnabled": true}
+}

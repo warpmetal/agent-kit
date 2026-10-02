@@ -1,6 +1,6 @@
 {
   "name": "warpmetal",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "Agent-safe CLI and skill for purchasing, renewing, and managing WarpMetal VPS servers",
   "type": "module",
   "bin": {
@@ -10,13 +10,15 @@
     "bin/",
     "src/",
     "skills/warpmetal/",
-    "README.md"
+    "README.md",
+    "docs/agent-*.md",
+    "docs/session-handoff-transport.md"
   ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "check": "node --check bin/warpmetal.js && node --check src/account-gateway.js && node --check src/account-session.js && node --check src/api.js && node --check src/args.js && node --check src/cli.js && node --check src/connection.js && node --check src/customer-auth.js && node --check src/errors.js && node --check src/host-trust.js && node --check src/install-skill.js && node --check src/installer.js && node --check src/models.js && node --check src/payment.js && node --check src/runtime.js && node --check src/ssh-alias.js && node --check src/ssh.js && node --check src/state.js && node --check src/version.js",
+    "check": "node --check bin/warpmetal.js && node --check src/account-gateway.js && node --check src/account-session.js && node --check src/api.js && node --check src/args.js && node --check src/cli.js && node --check src/connection.js && node --check src/customer-auth.js && node --check src/errors.js && node --check src/host-trust.js && node --check src/install-skill.js && node --check src/installer.js && node --check src/models.js && node --check src/payment.js && node --check src/runtime.js && node --check src/ssh-alias.js && node --check src/ssh.js && node --check src/state.js && node --check src/version.js && node --check src/agent-management.js && node --check src/agent-work.js && node --check src/agent-insights.js && node --check src/session-handoff.js && node --check src/contracts/work.js && node --check src/contracts/work-handoff.js && node --check src/contracts/insights.js && node --check src/contracts/manager.js && node --check src/contracts/session-handoff.js",
     "plugin:check": "node --test test/plugin.test.js",
     "test": "node --test",
     "prepack": "npm run check && npm test"
