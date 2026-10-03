@@ -32,14 +32,24 @@ const APPARMOR_POLICY_FILES = [
   "warpmetal-policy-metadata",
 ];
 
-function usesAppArmorPolicyBundle(version) {
-  return /^0\.1\.(?:25|26|30|31|32|33|34|35|36|37|38)(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
-}
+const POLICY_BUNDLE_FILES = [
+  ...BASE_REQUIRED_FILES,
+  ...APPARMOR_POLICY_FILES,
+];
 
-function requiredFiles(version) {
-  return usesAppArmorPolicyBundle(version)
-    ? [...BASE_REQUIRED_FILES, ...APPARMOR_POLICY_FILES]
-    : BASE_REQUIRED_FILES;
+// The signed release pin owns the runtime version; the installer validates the
+// extracted bundle against the exact observed layouts instead of tracking
+// patch versions.
+function bundleShape(actualFiles) {
+  for (const expected of [BASE_REQUIRED_FILES, POLICY_BUNDLE_FILES]) {
+    if (
+      actualFiles.length === expected.length &&
+      expected.every((name) => actualFiles.includes(name))
+    ) {
+      return expected;
+    }
+  }
+  return null;
 }
 
 const INSTALLER_ERROR_MESSAGES = new Map([
@@ -333,12 +343,9 @@ export async function installRuntime({
         spawnImpl,
       },
     );
-    const expectedFiles = requiredFiles(metadata.version);
     const actualFiles = await readdir(extractPath);
-    const exactNames =
-      actualFiles.length === expectedFiles.length &&
-      expectedFiles.every((name) => actualFiles.includes(name));
-    if (!exactNames) {
+    const expectedFiles = bundleShape(actualFiles);
+    if (expectedFiles === null) {
       throw new CliError(
         "The signed runtime bundle files do not match this CLI version.",
         { exitCode: 4 },

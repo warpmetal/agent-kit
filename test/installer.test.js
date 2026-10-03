@@ -228,7 +228,7 @@ test("runtime installation uses argument arrays and removes remote staging", asy
   );
 });
 
-for (const version of ["0.1.25", "0.1.26", "0.1.30", "0.1.31", "0.1.32", "0.1.33", "0.1.34", "0.1.35", "0.1.36", "0.1.37", "0.1.38"]) {
+for (const version of ["0.1.25", "0.1.26", "0.1.30", "0.1.31", "0.1.32", "0.1.33", "0.1.34", "0.1.35", "0.1.36", "0.1.37", "0.1.38", "0.1.39"]) {
   const shape = ["0.1.25", "0.1.26"].includes(version) ? "legacy" : "current";
   test(`runtime ${version} accepts the exact immutable ${shape} policy bundle`, async (context) => {
     const archive = await servedPolicyArchive(context, version);
