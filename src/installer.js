@@ -33,7 +33,7 @@ const APPARMOR_POLICY_FILES = [
 ];
 
 function usesAppArmorPolicyBundle(version) {
-  return /^0\.1\.(?:25|26|30|31|32|33|34|35|36)(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
+  return /^0\.1\.(?:25|26|30|31|32|33|34|35|36|37)(?:[-+][A-Za-z0-9.-]+)?$/.test(version);
 }
 
 function requiredFiles(version) {
