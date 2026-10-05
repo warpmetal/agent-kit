@@ -471,6 +471,11 @@ strictly pinned through each refreshed connection profile.
 
 ## Agent Runtime example
 
+Creating a sandbox on an existing server uses that server's Runtime API. The
+server enforces ownership, an active term and available capacity; creation does
+not require a fresh purchasing catalog. New server orders still require the live
+catalog.
+
 ```sh
 warpmetal runtime enable --server <serverId> --json
 warpmetal runtime install \

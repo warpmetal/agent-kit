@@ -2739,12 +2739,6 @@ async function handleSandboxCreate(client, store, options, context) {
   const sandboxes = await resolveCreateSandboxes(options);
   requireTemporaryConfirmation(sandboxes, stringOption(options, "confirm"));
   const token = await requireServerToken(store, serverId, options, context.env);
-  const server = (await client.getServer(serverId, token)).data?.task;
-  const catalog = (await client.catalog()).data;
-  const product = catalog.products.find(
-    (candidate) => candidate.id === server?.planId,
-  );
-  validateRuntimeCatalog(product, server?.osName, sandboxes);
   const key =
     stringOption(options, "idempotency-key") ||
     idempotencyKey("sandbox-create");

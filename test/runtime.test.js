@@ -1068,3 +1068,174 @@ test("access refresh replaces a pinned profile after reload", async () => {
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("existing-server sandbox create survives a new-purchase catalog 503 (real CLI/HTTP)", async (t) => {
+  const serverId = "srv_catalog503fixture";
+  const token = "owner-catalog-503-fixture";
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-catalog-503-cli-e2e-"));
+  const execFile = promisify(execFileCallback);
+  const requests = [];
+  let catalogStatus = 503;
+  let catalogBody = { error: { code: "provider_catalog_unavailable", message: "provider catalog unavailable" } };
+  let createStatus = 202;
+  let createErrorCode = "capacity_exceeded";
+  const server = http.createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const path = new URL(request.url, "http://localhost").pathname;
+    requests.push({
+      path,
+      method: request.method,
+      body: raw ? JSON.parse(raw) : undefined,
+      authorization: request.headers.authorization,
+      idempotencyKey: request.headers["idempotency-key"],
+    });
+    let status = 404;
+    let value = { error: { message: "not found" } };
+    if (request.method === "GET" && path === `/servers/${serverId}`) {
+      status = 200;
+      value = { task: { serverId, planId: "agent", osName: "Ubuntu 24.04 LTS" } };
+    } else if (request.method === "GET" && path === "/catalog") {
+      status = catalogStatus;
+      value = catalogBody;
+    } else if (request.method === "POST" && path === `/servers/${serverId}/sandboxes`) {
+      status = createStatus;
+      value = createStatus === 202
+        ? {
+            runtime: { state: "running", desiredRevision: 1, appliedRevision: 1 },
+            sandboxes: [
+              {
+                id: "sbx_cat503fixture",
+                name: "cat503",
+                size: "small",
+                desiredState: "running",
+                observedState: "pending",
+              },
+            ],
+          }
+        : { error: { code: createErrorCode, message: createErrorCode } };
+    }
+    response.writeHead(status, { "content-type": "application/json" });
+    response.end(JSON.stringify(value));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const run = async (extra = []) => {
+    try {
+      const out = await execFile(process.execPath, [
+        "bin/warpmetal.js", "sandbox", "create",
+        "--server", serverId, "--name", "cat503", "--size", "small",
+        "--base-url", baseUrl, "--state-dir", join(directory, "state"),
+        "--json", ...extra,
+      ], {
+        cwd: new URL("..", import.meta.url).pathname,
+        env: { WARPMETAL_OWNER_TOKEN: token },
+        timeout: 20_000,
+        maxBuffer: 1024 * 1024,
+      });
+      return { code: 0, stdout: out.stdout, stderr: out.stderr };
+    } catch (error) {
+      return { code: error.code, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+    }
+  };
+  try {
+    await t.test("catalog 503 must not stop the existing-server sandbox POST (exit 8 pending, exactly one idempotent POST)", async () => {
+      const before = requests.length;
+      const result = await run(["--idempotency-key", "catalog-503-fixture"]);
+      const posts = requests
+        .slice(before)
+        .filter((request) => request.method === "POST" && request.path === `/servers/${serverId}/sandboxes`);
+      assert.equal(result.code, 8, `expected pending exit 8, got ${result.code}: ${result.stderr}`);
+      assert.equal(posts.length, 1, `expected exactly one sandbox POST, got ${posts.length}`);
+      assert.equal(posts[0].authorization, `Bearer ${token}`);
+      assert.equal(posts[0].idempotencyKey, "catalog-503-fixture");
+      assert.deepEqual(posts[0].body, { sandboxes: [{ name: "cat503", size: "small" }] });
+      assert.equal(requests.slice(before).filter((request) => request.path === "/catalog").length, 0, "existing-server create must not call the purchase catalog");
+    });
+    await t.test("backend refusals propagate exactly once with the actual API error code", async () => {
+      catalogStatus = 200;
+      catalogBody = { products: [product] };
+      const cases = [
+        { status: 404, code: "server_not_found" },
+        { status: 409, code: "inactive_server_term" },
+        { status: 409, code: "insufficient_runtime_capacity" },
+      ];
+      for (const scenario of cases) {
+        createStatus = scenario.status;
+        createErrorCode = scenario.code;
+        const before = requests.length;
+        const result = await run(["--idempotency-key", `catalog-503-fixture-${scenario.code}`]);
+        const posts = requests
+          .slice(before)
+          .filter((request) => request.method === "POST" && request.path === `/servers/${serverId}/sandboxes`);
+        assert.notEqual(result.code, 0, `${scenario.code} must not exit 0: ${result.stdout}`);
+        assert.notEqual(result.code, 8, `${scenario.code} must not look pending: ${result.stdout}`);
+        assert.equal(posts.length, 1, `${scenario.code}: expected exactly one sandbox POST, got ${posts.length} (code=${result.code}, stderr=${result.stderr})`);
+        assert.match(result.stderr, new RegExp(scenario.code), `${scenario.code} must surface in stderr: ${result.stderr}`);
+        assert.equal(requests.slice(before).filter((request) => request.path === "/catalog").length, 0, `${scenario.code}: existing-server create must not call the purchase catalog`);
+      }
+    });
+  } finally {
+    server.close();
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+test("purchase order prepare refuses a new-purchase catalog 503 with no order mutation (real CLI/HTTP)", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "warpmetal-order-catalog-503-"));
+  const execFile = promisify(execFileCallback);
+  const runtimeFile = join(directory, "runtime.json");
+  const publicKeyFile = join(directory, "owner.pub");
+  await writeFile(runtimeFile, JSON.stringify({ sandboxes: [{ name: "planner", size: "small" }] }));
+  await writeFile(publicKeyFile, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA owner\n");
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = "";
+    for await (const chunk of request) raw += chunk;
+    const path = new URL(request.url, "http://localhost").pathname;
+    requests.push({ path, method: request.method, body: raw ? JSON.parse(raw) : undefined, idempotencyKey: request.headers["idempotency-key"] });
+    let status = 404;
+    let value = { error: { code: "not_found", message: "not found" } };
+    if (request.method === "GET" && path === "/health") {
+      status = 200;
+      value = { status: "ok", purchasingReady: true };
+    } else if (request.method === "GET" && path === "/catalog") {
+      status = 503;
+      value = { error: { code: "provider_catalog_unavailable", message: "provider catalog unavailable" } };
+    }
+    response.writeHead(status, { "content-type": "application/json" });
+    response.end(JSON.stringify(value));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  try {
+    let result;
+    try {
+      const out = await execFile(process.execPath, [
+        "bin/warpmetal.js", "order", "prepare",
+        "--plan", "agent", "--hostname", "catalog-503-team", "--os", "Ubuntu 24.04 LTS",
+        "--ssh-public-key-file", publicKeyFile, "--runtime-file", runtimeFile,
+        "--confirm", "TEMPORARY", "--base-url", baseUrl,
+        "--state-dir", join(directory, "state"), "--json",
+      ], {
+        cwd: new URL("..", import.meta.url).pathname,
+        env: { WARPMETAL_OWNER_TOKEN: "order-catalog-503-fixture" },
+        timeout: 20_000,
+        maxBuffer: 1024 * 1024,
+      });
+      result = { code: 0, stdout: out.stdout, stderr: out.stderr };
+    } catch (error) {
+      result = { code: error.code, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+    }
+    assert.notEqual(result.code, 0, `catalog 503 must fail closed: ${result.stdout}`);
+    assert.match(result.stderr, /provider_catalog_unavailable/, result.stderr);
+    const posts = requests.filter((request) => request.method === "POST");
+    assert.equal(posts.length, 0, "catalog 503 must not mutate any endpoint: no POST at all");
+    assert.equal(requests.filter((request) => request.method === "GET" && request.path === "/catalog").length, 1, "exactly one catalog read before refusal");
+  } finally {
+    server.close();
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+});
